@@ -166,6 +166,15 @@ final class ObserverTracker {
     }
 
     private static void refresh() {
+        long startedAt = System.nanoTime();
+        try {
+            refresh0();
+        } finally {
+            BotPerformanceMonitor.recordObserverPoll(System.nanoTime() - startedAt);
+        }
+    }
+
+    private static void refresh0() {
         Server server = Server.getInstance();
         if (server == null) {
             return;
@@ -198,7 +207,22 @@ final class ObserverTracker {
         // active for DWELL_MS past its last observation — so demotion lags but promotion is immediate.
         Set<Integer> observed = new HashSet<>(full);
         observed.addAll(halo);
+        Set<Integer> activeBefore = DWELL.active();
         DWELL.observe(observed, System.currentTimeMillis());
+        Set<Integer> activeAfter = DWELL.active();
+        int promoted = 0;
+        for (int mapId : activeAfter) {
+            if (!activeBefore.contains(mapId)) {
+                promoted++;
+            }
+        }
+        int demoted = 0;
+        for (int mapId : activeBefore) {
+            if (!activeAfter.contains(mapId)) {
+                demoted++;
+            }
+        }
+        BotPerformanceMonitor.recordTierFlips(promoted, demoted);
 
         fullMaps = full.isEmpty() ? Set.of() : Set.copyOf(full);
         haloMaps = halo.isEmpty() ? Set.of() : Set.copyOf(halo);

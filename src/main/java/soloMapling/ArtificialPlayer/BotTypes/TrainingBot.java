@@ -1,6 +1,7 @@
 package soloMapling.ArtificialPlayer.BotTypes;
 
 import client.Character;
+import client.inventory.Item;
 import constants.game.ExpTable;
 import constants.id.MapId;
 import net.server.Server;
@@ -9,6 +10,7 @@ import net.server.world.PartyCharacter;
 import net.server.world.World;
 import soloMapling.ArtificialPlayer.BotAttackSystem.BotAttackDriver;
 import soloMapling.ArtificialPlayer.BotAttackSystem.BotBuffDriver;
+import soloMapling.ArtificialPlayer.BotHoldings;
 import soloMapling.ArtificialPlayer.BotOptionMenu;
 import soloMapling.ArtificialPlayer.BotPartySystem.BotPartyQueue;
 import soloMapling.ArtificialPlayer.BotPartySystem.BotRecruitManager;
@@ -22,6 +24,7 @@ import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
 import soloMapling.ArtificialPlayer.BotGrindSystem.DeepHub;
 import soloMapling.ArtificialPlayer.BotGrindSystem.GrindBrain;
 import soloMapling.ArtificialPlayer.BotGrindSystem.MapMobIndex;
+import soloMapling.ArtificialPlayer.BotGrindSystem.OffscreenRewardBudget;
 import soloMapling.ArtificialPlayer.BotGrindSystem.TrainingMapChooser;
 import soloMapling.ArtificialPlayer.BotGrindSystem.SpotFinder;
 import soloMapling.ArtificialPlayer.BotGrindSystem.TrainingMap;
@@ -732,6 +735,7 @@ public class TrainingBot extends BotSM {
         lastExpAccrualMs = nowMs;
         if (elapsedSec > 0 && !GCMovement.isMapObserved(chr.getMapId()) && currentMobLevel > 0) {
             accrueAbstractExp(currentMobLevel, elapsedSec);
+            accrueAbstractLoot(chr, nowMs, (long) (elapsedSec * 1000));
         }
 
         // Announce a level-up the moment it becomes visible (real kills on an observed map).
@@ -1166,6 +1170,23 @@ public class TrainingBot extends BotSM {
             return;
         }
         BotFullChat(chr, message); // general chat: bubble above the head AND a line in the chat box
+    }
+
+    // Offscreen loot is not minted: it is drawn from the map instance's own hunting-capacity budget, shared
+    // with every other bot grinding there, and credited through the same holdings a real drop would use. A
+    // bot whose inventory cannot take its share forfeits it rather than banking it.
+    private void accrueAbstractLoot(Character chr, long nowMs, long elapsedMs) {
+        OffscreenRewardBudget.Reward reward = OffscreenRewardBudget.draw(chr.getMapId(),
+                chr.getMap().getCharacters().size(), elapsedMs, nowMs, chr.getWorldServer());
+        if (reward.isEmpty()) {
+            return;
+        }
+        if (reward.mesos() > 0) {
+            BotHoldings.grantMeso(chr, (int) Math.min(reward.mesos(), Integer.MAX_VALUE));
+        }
+        for (Item item : reward.items()) {
+            BotHoldings.grantItem(chr, item);
+        }
     }
 
     // Silent, level-scaled accrual: kills/min x per-kill-exp, where per-kill-exp ~ the map's mob level.

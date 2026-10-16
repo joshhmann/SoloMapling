@@ -948,6 +948,15 @@ final class BotPhysicsEngine {
      * direction (-1=up, 0=idle, +1=down). Movement layer sets intent before calling.
      */
     static void advanceClimb(BotMovementState entry, Character bot) {
+        long startedAt = System.nanoTime();
+        try {
+            advanceClimb0(entry, bot);
+        } finally {
+            BotPerformanceMonitor.recordPhysicsStep(System.nanoTime() - startedAt);
+        }
+    }
+
+    private static void advanceClimb0(BotMovementState entry, Character bot) {
         Rope rope = entry.climbRope;
         if (rope == null) {
             beginFall(entry, bot, 0);
@@ -998,6 +1007,15 @@ final class BotPhysicsEngine {
      * Movement layer sets intent before calling; physics never returns velocity to movement.
      */
     static GroundMotion applyGroundMotion(BotMovementState entry, Character bot, Foothold foothold) {
+        long startedAt = System.nanoTime();
+        try {
+            return applyGroundMotion0(entry, bot, foothold);
+        } finally {
+            BotPerformanceMonitor.recordPhysicsStep(System.nanoTime() - startedAt);
+        }
+    }
+
+    private static GroundMotion applyGroundMotion0(BotMovementState entry, Character bot, Foothold foothold) {
         MapleMap map = bot.getMap();
         Point currentPos = bot.getPosition();
         int desiredDir = entry.moveDir;
@@ -1217,6 +1235,15 @@ final class BotPhysicsEngine {
      * where SWIMMING physics applies only while airborne underwater.
      */
     static void applySwimMotion(BotMovementState entry) {
+        long startedAt = System.nanoTime();
+        try {
+            applySwimMotion0(entry);
+        } finally {
+            BotPerformanceMonitor.recordPhysicsStep(System.nanoTime() - startedAt);
+        }
+    }
+
+    private static void applySwimMotion0(BotMovementState entry) {
         Character bot = entry.bot;
         MapleMap map = bot.getMap();
         Point pos = bot.getPosition();
@@ -1458,6 +1485,15 @@ final class BotPhysicsEngine {
      * All collision outcome methods are private — movement must not call them directly.
      */
     static AirborneStepResult stepAirborne(BotMovementState entry, Character bot) {
+        long startedAt = System.nanoTime();
+        try {
+            return stepAirborne0(entry, bot);
+        } finally {
+            BotPerformanceMonitor.recordPhysicsStep(System.nanoTime() - startedAt);
+        }
+    }
+
+    private static AirborneStepResult stepAirborne0(BotMovementState entry, Character bot) {
         // Apply air steering from intent. Movement holds the launch key for committed
         // trajectories (input no-op above the band — vx constant); free flight with no
         // input gets the CalcFloat drag instead. fixedAirArc additionally guards direct

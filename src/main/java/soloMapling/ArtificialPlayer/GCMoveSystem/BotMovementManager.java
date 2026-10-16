@@ -850,11 +850,6 @@ class BotMovementManager {
     }
 
     static void broadcastMovement(BotMovementState entry) {
-        if (!BotPerformanceMonitor.enabled()) {
-            doBroadcastMovement(entry);
-            return;
-        }
-
         long startedAt = System.nanoTime();
         try {
             doBroadcastMovement(entry);
@@ -930,7 +925,7 @@ class BotMovementManager {
         data[14] = (byte) (BotPhysicsEngine.cfg.TICK_MS >> 8);
         InPacket packet = new ByteBufInPacket(Unpooled.wrappedBuffer(data));
         Packet movePacket = PacketCreator.movePlayer(bot.getId(), packet, data.length);
-        bot.getMap().broadcastMessage(bot, movePacket, false);
+        BotPerformanceMonitor.recordBroadcastFanout(bot.getMap().broadcastMessage(bot, movePacket, false));
     }
 
     // Broadcast a hand-built movement fragment path ([numCommands][fragments...]) verbatim to observers. Used
@@ -940,9 +935,14 @@ class BotMovementManager {
         if (bot == null || bot.getMap() == null) {
             return;
         }
-        InPacket packet = new ByteBufInPacket(Unpooled.wrappedBuffer(data));
-        Packet movePacket = PacketCreator.movePlayer(bot.getId(), packet, data.length);
-        bot.getMap().broadcastMessage(bot, movePacket, false);
+        long startedAt = System.nanoTime();
+        try {
+            InPacket packet = new ByteBufInPacket(Unpooled.wrappedBuffer(data));
+            Packet movePacket = PacketCreator.movePlayer(bot.getId(), packet, data.length);
+            BotPerformanceMonitor.recordBroadcastFanout(bot.getMap().broadcastMessage(bot, movePacket, false));
+        } finally {
+            BotPerformanceMonitor.recordBroadcastRaw(System.nanoTime() - startedAt);
+        }
     }
 
     // Broadcast a flash jump so observers render the dash animation instead of a plain air-glide. Adapted

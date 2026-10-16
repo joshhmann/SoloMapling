@@ -181,6 +181,10 @@ public class BotGeneration {
     }
 
     public static void removeBotFromServer(Character fakechar) {
+        // Bots are never saved to the database, so whatever this bot accumulated through the holdings seam
+        // (loot, shop purchases, trade receipts) would simply vanish with it. Settle it onto the map the bot is
+        // leaving — while its map is still available — so the value stays in the world instead of being destroyed.
+        BotHoldings.settle(fakechar);
         fakechar.getMap().removePlayer(fakechar);
         channel.removePlayer(fakechar);
         world.getPlayerStorage().removePlayer(fakechar.getId());

@@ -4,6 +4,7 @@ import client.Character;
 import server.life.Monster;
 import server.maps.MapObject;
 import soloMapling.ArtificialPlayer.BotSpotClaims;
+import soloMapling.ArtificialPlayer.GCMoveSystem.BotPerformanceMonitor;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 
 import java.awt.Point;
@@ -315,18 +316,20 @@ class CampStrategy implements GrindStrategy {
         if (enforceAnchorProximity(chr, s)) {
             return; // off the anchor ledge too long -> Layer 3 took this tick to escalate the return
         }
+        long scanStart = System.nanoTime();
         Monster t = stickyTarget(chr, s);
         if (t == null) {
             t = acquireTarget(chr, s);
             b.targetOid = (t != null) ? t.getObjectId() : -1;
             b.resetApproachProgress(chr);
         }
+        BotPerformanceMonitor.recordCombatScan(System.nanoTime() - scanStart);
         if (t == null) {
             enterWait(chr, s);
             return;
         }
         // Passive at-feet loot: never interrupts the swing or diverts to distant loot.
-        b.loot.grabLootAtFeet(chr);
+        b.lootAtFeet(chr);
         if (b.inAttackRange(chr, t)) {
             if (b.engage.preSwingAdjust(chr, t)) {
                 return; // turned / kited / re-centred this beat — swing next beat
@@ -382,7 +385,9 @@ class CampStrategy implements GrindStrategy {
         if (enforceAnchorProximity(chr, s)) {
             return; // corral back to the anchor before waiting out a lull off-ledge
         }
+        long scanStart = System.nanoTime();
         Monster t = acquireTarget(chr, s);
+        BotPerformanceMonitor.recordCombatScan(System.nanoTime() - scanStart);
         if (t != null) {
             b.targetOid = t.getObjectId();
             b.resetApproachProgress(chr);
@@ -397,7 +402,7 @@ class CampStrategy implements GrindStrategy {
         // tidying up their loot; the sweep covers the full radius from wherever the bot stopped, so a
         // stationed ranged bot finally clears its pile here instead of fidgeting.
         int[] leash = leash(chr);
-        if (b.loot.tryWalkAndLoot(chr, leash[0], leash[1], 2 * s.radius())) {
+        if (b.walkAndLoot(chr, leash[0], leash[1], 2 * s.radius())) {
             return;
         }
         // Pile cleared and no mob — hold position and wait out the respawn lull (regime-scaled: a sparse

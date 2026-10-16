@@ -132,7 +132,12 @@ final class GCMovementDriver {
     private static void safeTick(BotMovementState entry) {
         try {
             soloMapling.server.BotPerfStats.MOVEMENT_TICKS.increment();
-            tick(entry);
+            long startedAt = System.nanoTime();
+            try {
+                tick(entry);
+            } finally {
+                BotPerformanceMonitor.recordMovementTick(System.nanoTime() - startedAt);
+            }
         } catch (Throwable t) {
             // A thrown exception must not break the self-reschedule chain — swallow so the bot keeps ticking.
         }
@@ -256,6 +261,15 @@ final class GCMovementDriver {
      * the bot is airborne/climbing or the map has no cached graph.
      */
     private static boolean tryCoarseAdvance(BotMovementState entry, Character bot, Point target) {
+        long startedAt = System.nanoTime();
+        try {
+            return tryCoarseAdvance0(entry, bot, target);
+        } finally {
+            BotPerformanceMonitor.recordOffscreenAccrual(System.nanoTime() - startedAt);
+        }
+    }
+
+    private static boolean tryCoarseAdvance0(BotMovementState entry, Character bot, Point target) {
         if (target == null || entry.inAir || entry.climbing) {
             return false;
         }
@@ -284,6 +298,9 @@ final class GCMovementDriver {
             entry.coarsePlanStartMs = now;
             entry.coarsePlanTarget = new Point(target);
             entry.coarsePlanMapId = bot.getMapId();
+        }
+        if (!entry.coarseActive) {
+            BotPerformanceMonitor.recordCoarseDemotion();
         }
         entry.coarseActive = true;
         CoarseExecutor.Step step = CoarseExecutor.advance(entry.coarsePlan, entry.coarsePlanStartMs, now);
@@ -316,6 +333,15 @@ final class GCMovementDriver {
      * hysteresis/safe-node reconstruction is M3.
      */
     private static void reconstructPhysicsFromCoarse(BotMovementState entry, Character bot) {
+        long startedAt = System.nanoTime();
+        try {
+            reconstructPhysicsFromCoarse0(entry, bot);
+        } finally {
+            BotPerformanceMonitor.recordPromotionReconstruct(System.nanoTime() - startedAt);
+        }
+    }
+
+    private static void reconstructPhysicsFromCoarse0(BotMovementState entry, Character bot) {
         entry.coarseActive = false;
         entry.coarsePlan = null;
         entry.coarsePlanTarget = null;

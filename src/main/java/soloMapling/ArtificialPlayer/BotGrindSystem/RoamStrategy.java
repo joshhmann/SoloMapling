@@ -3,6 +3,7 @@ package soloMapling.ArtificialPlayer.BotGrindSystem;
 import client.Character;
 import server.life.Monster;
 import server.maps.MapObject;
+import soloMapling.ArtificialPlayer.GCMoveSystem.BotPerformanceMonitor;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 
 import java.awt.Point;
@@ -52,12 +53,14 @@ final class RoamStrategy implements GrindStrategy {
 
     @Override
     public void tick(Character chr) {
-        b.loot.grabLootAtFeet(chr);
+        b.lootAtFeet(chr);
+        long scanStart = System.nanoTime();
         Monster t = roamTarget(chr);
+        BotPerformanceMonitor.recordCombatScan(System.nanoTime() - scanStart);
         if (t == null) {
             // Dry beat: tidy the drop pile first (a real player loots between packs), then hold and re-scan.
             int[] leash = leash(chr);
-            if (!b.loot.tryWalkAndLoot(chr, leash[0], leash[1], ROAM_LOOT_SEARCH_PX)) {
+            if (!b.walkAndLoot(chr, leash[0], leash[1], ROAM_LOOT_SEARCH_PX)) {
                 GCMovement.stop(chr); // no mob in seek range this beat — hold; re-scan next tick
                 b.engaged = false;
             }

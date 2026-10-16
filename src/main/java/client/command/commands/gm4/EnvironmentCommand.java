@@ -21,6 +21,7 @@ import soloMapling.ArtificialPlayer.ConversationManager;
 import soloMapling.ArtificialPlayer.SocialHotPotatoManager;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
 import soloMapling.ArtificialPlayer.BotTypes.TrainingBot;
+import soloMapling.ArtificialPlayer.GCMoveSystem.BotPerformanceMonitor;
 import soloMapling.ArtificialPlayer.GCMoveSystem.LodCounts;
 import soloMapling.Casino.CasinoChipConfig;
 import soloMapling.server.BotPerfStats;
@@ -512,7 +513,8 @@ public class EnvironmentCommand extends Command {
     }
 
     // Fable audit Phase 0: perf snapshot - threads, heap, tick rates (delta since the
-    // previous readout), plus bot/tier counts. Run twice a few seconds apart for live rates.
+    // previous readout), plus bot/tier counts, plus the active/background/transition cost
+    // attribution (also delta-based: read twice a few seconds apart for per-window rates).
     private static void printPerfReport() {
         for (String line : BotPerfStats.report()) {
             player.yellowMessage(line);
@@ -521,12 +523,15 @@ public class EnvironmentCommand extends Command {
                 CharacterStorage.getAllBots().size(), LodCounts.dynamicBots(), TrainingBot.activeGrinderCount()));
         player.yellowMessage(String.format("observed maps: full=%d halo=%d active=%d",
                 LodCounts.fullMaps(), LodCounts.haloMaps(), LodCounts.activeMaps()));
+        for (String line : BotPerformanceMonitor.report()) {
+            player.yellowMessage(line);
+        }
     }
 
     private static void printHelp() {
         player.yellowMessage("---- Environment Commands (!env) ----");
         player.yellowMessage("-- Diagnostics --");
-        player.yellowMessage("!env perf                        - bot perf: threads, heap, tick rates, tiers");
+        player.yellowMessage("!env perf                        - bot perf: threads, heap, tick rates, tiers, active/background/transition cost");
         player.yellowMessage("-- World Startup --");
         player.yellowMessage("!env loadenv                     - run full environment startup");
         player.yellowMessage("-- FM Spawning --");

@@ -362,9 +362,16 @@ public class ItemInformationProvider {
     }
 
     public short getSlotMax(Client c, int itemId) {
+        return (short) (getSlotMax(itemId) + getExtraSlotMaxFromPlayer(c, itemId));
+    }
+
+    // WZ-only stack size, for callers with no Client to derive player-specific extensions from (bot-side
+    // item generation, capacity estimates). getExtraSlotMaxFromPlayer dereferences the Client, so it can
+    // only run on the path above.
+    public short getSlotMax(int itemId) {
         Short slotMax = slotMaxCache.get(itemId);
         if (slotMax != null) {
-            return (short) (slotMax + getExtraSlotMaxFromPlayer(c, itemId));
+            return slotMax;
         }
         short ret = 0;
         Data item = getItemData(itemId);
@@ -382,7 +389,7 @@ public class ItemInformationProvider {
         }
 
         slotMaxCache.put(itemId, ret);
-        return (short) (ret + getExtraSlotMaxFromPlayer(c, itemId));
+        return ret;
     }
 
     public int getMeso(int itemId) {

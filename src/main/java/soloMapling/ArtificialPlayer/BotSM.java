@@ -13,6 +13,7 @@ import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeInventory;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeLogic;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeSM;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeWants;
+import soloMapling.ArtificialPlayer.GCMoveSystem.BotPerformanceMonitor;
 import soloMapling.ArtificialPlayer.GCMoveSystem.LodCounts;
 import soloMapling.server.EventMessageSystem.BotEventBuffer;
 import soloMapling.server.EventMessageSystem.EventBus;
@@ -76,7 +77,12 @@ public abstract class BotSM implements EventSubscriber {
                 return; // FSM-requested pause (waitFor) - skip the tick entirely
             }
             soloMapling.server.BotPerfStats.MACRO_TICKS.increment();
-            updateState();
+            long startedAt = System.nanoTime();
+            try {
+                updateState();
+            } finally {
+                BotPerformanceMonitor.recordMacroTick(System.nanoTime() - startedAt);
+            }
         } catch (Exception e) {
             e.printStackTrace(); // Handle exceptions to ensure the scheduler doesn't stop unexpectedly
         }
@@ -333,11 +339,16 @@ public abstract class BotSM implements EventSubscriber {
         }
         lastNudgeMs = now;
         soloMapling.server.BotPerfStats.NUDGES.increment();
+        long startedAt = System.nanoTime();
 
         long period = getRandomDelay(); // steady state stays 2-6s; only the next tick is pulled forward
         this.currentDelay = period;
         this.cadenceObserved = true; // the nudge re-established the normal cadence; next tick re-evaluates
-        BotTickService.nudge(getChr().getId(), initialDelayMs, period);
+        try {
+            BotTickService.nudge(getChr().getId(), initialDelayMs, period);
+        } finally {
+            BotPerformanceMonitor.recordNudge(System.nanoTime() - startedAt);
+        }
     }
 
     // Cadence tier tracking: reschedule the observed cadence only on a tier flip, but

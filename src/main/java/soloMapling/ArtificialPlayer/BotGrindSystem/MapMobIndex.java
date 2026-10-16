@@ -34,8 +34,13 @@ public final class MapMobIndex {
     public record SpawnPos(int x, int y, int fhGroup) {
     }
 
-    public record MapMobInfo(int medianLevel, int mobCount, List<Integer> mobIds, List<SpawnPos> spawnPoints) {
-        static final MapMobInfo NONE = new MapMobInfo(-1, 0, List.of(), List.of());
+    // respawnMs runs parallel to spawnPoints: the WZ `mobTime` of that spawn point in milliseconds
+    // (SpawnPoint's own unit - on a kill it adds mobTime seconds to nextPossibleSpawn), or 0 when the
+    // entry has no mobTime and the map's global respawn cycle is the only gate. -1 marks a spawn point
+    // that never respawns (SpawnPoint.shouldSpawn rejects mobTime < 0), so capacity estimates skip it.
+    public record MapMobInfo(int medianLevel, int mobCount, List<Integer> mobIds, List<SpawnPos> spawnPoints,
+                             List<Integer> respawnMs) {
+        static final MapMobInfo NONE = new MapMobInfo(-1, 0, List.of(), List.of(), List.of());
     }
 
     private static final ThreadLocal<DataProvider> MAP_SOURCE =
@@ -56,6 +61,11 @@ public final class MapMobIndex {
     // Mob ids the map is defined to spawn (from WZ life data), or empty for mobless maps (towns).
     public static List<Integer> mobIds(int mapId) {
         return info(mapId).mobIds();
+    }
+
+    // Per-spawn-point respawn time in milliseconds, parallel to spawnPoints (see MapMobInfo).
+    public static List<Integer> respawnMs(int mapId) {
+        return info(mapId).respawnMs();
     }
 
     // Raw WZ spawn points (x, cy, foothold-group ledge key). Static data straight off the map img — no
@@ -83,6 +93,7 @@ public final class MapMobIndex {
             List<Integer> levels = new ArrayList<>();
             List<Integer> mobIds = new ArrayList<>();
             List<SpawnPos> positions = new ArrayList<>();
+            List<Integer> respawnMs = new ArrayList<>();
             for (Data entry : life) {
                 if (!"m".equals(DataTool.getString("type", entry, ""))) {
                     continue;
@@ -107,16 +118,25 @@ public final class MapMobIndex {
                     int cy = DataTool.getInt("cy", entry, DataTool.getInt("y", entry, 0));
                     int fh = DataTool.getInt("fh", entry, -1);
                     positions.add(new SpawnPos(x, cy, fhGroups.getOrDefault(fh, -1)));
+                    respawnMs.add(respawnMillis(DataTool.getInt("mobTime", entry, 0)));
                 }
             }
             if (levels.isEmpty()) {
                 return MapMobInfo.NONE;
             }
             Collections.sort(levels);
-            return new MapMobInfo(levels.get(levels.size() / 2), levels.size(), mobIds, positions);
+            return new MapMobInfo(levels.get(levels.size() / 2), levels.size(), mobIds, positions, respawnMs);
         } catch (RuntimeException e) {
             return MapMobInfo.NONE;
         }
+    }
+
+    // WZ mobTime (seconds, MapFactory's unit) as milliseconds. -1 keeps its "never respawns" meaning.
+    private static int respawnMillis(int mobTimeSeconds) {
+        if (mobTimeSeconds < 0) {
+            return -1;
+        }
+        return (int) Math.min((long) mobTimeSeconds * 1000L, Integer.MAX_VALUE);
     }
 
     // fh id -> a per-map ledge key from the WZ foothold tree (one key per layer/group node). Footholds in

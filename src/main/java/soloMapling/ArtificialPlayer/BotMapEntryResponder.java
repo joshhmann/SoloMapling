@@ -3,6 +3,7 @@ package soloMapling.ArtificialPlayer;
 import client.Character;
 import server.maps.MapleMap;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
+import soloMapling.ArtificialPlayer.GCMoveSystem.BotPerformanceMonitor;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 import soloMapling.server.ExecutorServiceManager;
 import soloMapling.server.EventMessageSystem.EventBus;
@@ -96,5 +97,6 @@ public final class BotMapEntryResponder implements EventSubscriber {
         }
         long jitter = ThreadLocalRandom.current().nextLong(NUDGE_MIN_MS, NUDGE_MAX_MS + 1);
         bot.nudgeSoon(jitter);
+        BotPerformanceMonitor.recordEntryNudges(1);
     }
 }

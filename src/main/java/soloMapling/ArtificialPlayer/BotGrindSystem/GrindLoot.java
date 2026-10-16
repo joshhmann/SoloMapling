@@ -5,6 +5,7 @@ import server.maps.MapItem;
 import server.maps.MapObject;
 import server.maps.MapObjectType;
 import soloMapling.ArtificialPlayer.BotCommandsPack.DropCommands;
+import soloMapling.ArtificialPlayer.BotHoldings;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 
 import java.awt.Point;
@@ -132,6 +133,9 @@ final class GrindLoot {
             if (!DropCommands.botCanLoot(chr, mi)) {
                 continue;
             }
+            if (!BotHoldings.canCreditDrop(chr, mi)) {
+                continue; // no room for it: don't walk a bot to loot it cannot hold (and never delete uncredited)
+            }
             if (now() - mi.getDropTime() < LOOT_SETTLE_MS) {
                 continue; // too fresh — let it land first; it'll be collected on a later tick
             }
@@ -149,7 +153,8 @@ final class GrindLoot {
     }
 
     // Every eligible drop in [x0, x1] within rangePx and the same-ledge Y band — the multi-drop counterpart to
-    // nearestCollectableDrop (identical botCanLoot / settle / leash / ledge filters), used to plan a whole sweep.
+    // nearestCollectableDrop (identical botCanLoot / holdable / settle / leash / ledge filters), used to plan a
+    // whole sweep.
     private List<MapItem> collectableDrops(Character chr, int rangePx, int x0, int x1, int yLimit) {
         Point pos = chr.getPosition();
         if (pos == null) {
@@ -161,6 +166,9 @@ final class GrindLoot {
             MapItem mi = (MapItem) mo;
             if (!DropCommands.botCanLoot(chr, mi)) {
                 continue;
+            }
+            if (!BotHoldings.canCreditDrop(chr, mi)) {
+                continue; // no room for it: don't plan a walk to loot it cannot hold (and never delete uncredited)
             }
             if (now() - mi.getDropTime() < LOOT_SETTLE_MS) {
                 continue; // too fresh — let it land first; the pass-over grabs whatever has settled by then

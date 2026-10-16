@@ -14,6 +14,7 @@ import server.maps.MapObjectType;
 import server.maps.MapleMap;
 import soloMapling.ArtificialPlayer.BotCommandsPack.BotAttack;
 import soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands;
+import soloMapling.ArtificialPlayer.GCMoveSystem.BotPerformanceMonitor;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 
 import java.awt.Point;
@@ -87,7 +88,12 @@ public final class BotAttackDriver {
      * single). Cheap and safe to call every tick; most ticks do nothing. The FSM entry point.
      */
     public static AttackResult botAttack(Character bot) {
-        return attack(bot, false, Choice.AUTO);
+        long startedAt = System.nanoTime();
+        try {
+            return attack(bot, false, Choice.AUTO);
+        } finally {
+            BotPerformanceMonitor.recordCombatDamage(System.nanoTime() - startedAt);
+        }
     }
 
     /* Force the SINGLE-target attack now, ignoring cooldown (backs !bot attack <id>). */

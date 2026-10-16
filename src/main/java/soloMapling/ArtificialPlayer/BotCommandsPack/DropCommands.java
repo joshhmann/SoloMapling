@@ -9,6 +9,7 @@ import server.maps.MapObject;
 import server.maps.MapObjectType;
 import server.TimerManager;
 import soloMapling.ArtificialPlayer.BotHelpers;
+import soloMapling.ArtificialPlayer.BotHoldings;
 import soloMapling.ArtificialPlayer.BotLogic;
 import tools.PacketCreator;
 
@@ -194,9 +195,7 @@ public class DropCommands {
         // 1000 Range = next to feet // 3000 = 2.5 character widths length
         List<MapObject> items = fakechar.getMap().getMapObjectsInRange(itemLocation, range, Arrays.asList(MapObjectType.ITEM));
         for (MapObject item : items) {
-            MapItem mapItem = (MapItem) item;
-            final Packet pickupPacket = PacketCreator.removeItemFromMap(mapItem.getObjectId(), 2, fakechar.getId());
-            fakechar.getMap().pickItemDrop(pickupPacket, mapItem);
+            pickUpAndCredit(fakechar, (MapItem) item);
         }
     }
 
@@ -216,8 +215,7 @@ public class DropCommands {
         for (MapObject item : items) {
             MapItem mapItem = (MapItem) item;
             if (mapItem.getOwnerId() == targetCharacter.getId()) {
-                final Packet pickupPacket = PacketCreator.removeItemFromMap(mapItem.getObjectId(), 2, fakechar.getId());
-                fakechar.getMap().pickItemDrop(pickupPacket, mapItem);
+                pickUpAndCredit(fakechar, mapItem);
             }
         }
     }
@@ -226,9 +224,7 @@ public class DropCommands {
     // data-driven. Callers (blackjack payouts, loot scripts) rely on the hold.
     public static void lootItemListOnFloor(Character fakechar, List<MapObject> items) {
         for (MapObject item : items) {
-            MapItem mapItem = (MapItem) item;
-            final Packet pickupPacket = PacketCreator.removeItemFromMap(mapItem.getObjectId(), 2, fakechar.getId());
-            fakechar.getMap().pickItemDrop(pickupPacket, mapItem);
+            pickUpAndCredit(fakechar, (MapItem) item);
             BotHelpers.blockingSleep(100);
         }
     }
@@ -259,11 +255,32 @@ public class DropCommands {
 
     // Pick up one specific drop (organic single-item loot, paced by the caller for a natural look).
     public static void botLootSingleDrop(Character fakechar, MapItem mapItem) {
-        if (mapItem == null || mapItem.isPickedUp()) {
+        pickUpAndCredit(fakechar, mapItem);
+    }
+
+    // The bot equivalent of Character.pickupItem: the drop is credited to the bot's holdings first, and only a
+    // successful credit removes it from the map. A drop the bot cannot hold (full inventory, no meso room) stays
+    // on the floor for someone who can — it must never be deleted uncredited.
+    private static void pickUpAndCredit(Character fakechar, MapItem mapItem) {
+        if (mapItem == null) {
             return;
         }
-        final Packet pickupPacket = PacketCreator.removeItemFromMap(mapItem.getObjectId(), 2, fakechar.getId());
-        fakechar.getMap().pickItemDrop(pickupPacket, mapItem);
+        // Same discipline as Character.pickupItem: bot ticks run on their own threads, so the picked-up check, the
+        // credit and the removal all sit inside the drop's lock. Without it two bots looting the same drop can
+        // both be credited for it, and pickItemDrop requires a locked, not-yet-picked-up drop.
+        mapItem.lockItem();
+        try {
+            if (mapItem.isPickedUp()) {
+                return;
+            }
+            if (!BotHoldings.creditDrop(fakechar, mapItem)) {
+                return;
+            }
+            final Packet pickupPacket = PacketCreator.removeItemFromMap(mapItem.getObjectId(), 2, fakechar.getId());
+            fakechar.getMap().pickItemDrop(pickupPacket, mapItem);
+        } finally {
+            mapItem.unlockItem();
+        }
     }
 
     // Sweep all drops the bot is entitled to (own + free-for-all) within range. Used as a tidy-up when a

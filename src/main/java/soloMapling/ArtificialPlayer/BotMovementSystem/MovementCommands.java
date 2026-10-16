@@ -10,6 +10,7 @@ import soloMapling.ArtificialPlayer.BotMovementSystem.MovementStructures.SingleM
 import soloMapling.ArtificialPlayer.BotMovementSystem.MovementStructures.MovementRecording;
 import soloMapling.ArtificialPlayer.BotMovementSystem.NavigationSystem.NavigationElement;
 import soloMapling.ArtificialPlayer.BotMovementSystem.NavigationSystem.PathFinder;
+import soloMapling.ArtificialPlayer.GCMoveSystem.BotPerformanceMonitor;
 import soloMapling.ArtificialPlayer.GCMoveSystem.LodCounts;
 import tools.PacketCreator;
 import tools.exceptions.EmptyMovementException;
@@ -294,7 +295,12 @@ public class MovementCommands {
             return;
         }
         soloMapling.server.BotPerfStats.IDLE_BROADCASTS.increment();
-        BotIdleStandingUpdateForced(fakechar);
+        long startedAt = System.nanoTime();
+        try {
+            BotIdleStandingUpdateForced(fakechar);
+        } finally {
+            BotPerformanceMonitor.recordIdleBroadcast(System.nanoTime() - startedAt);
+        }
     }
 
     public static void BotIdleStandingUpdateForced(Character fakechar) {

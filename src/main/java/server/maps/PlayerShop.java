@@ -30,6 +30,7 @@ import client.inventory.manipulator.InventoryManipulator;
 import client.inventory.manipulator.KarmaManipulator;
 import net.packet.Packet;
 import server.Trade;
+import soloMapling.ArtificialPlayer.BotHoldings;
 import tools.PacketCreator;
 import tools.Pair;
 
@@ -713,8 +714,20 @@ public class PlayerShop extends AbstractMapObject {
             try {
                 int price = (int) Math.min((float) pItem.getPrice() * quantity, Integer.MAX_VALUE);
 
+                if (!BotHoldings.spendMeso(fakechar, price)) {
+                    fakechar.dropMessage(1, "You don't have enough mesos to purchase this item.");
+                    return false;
+                }
+
                 if (!owner.canHoldMeso(price)) {    // thanks Rohenn for noticing owner hold check misplaced
+                    BotHoldings.grantMeso(fakechar, price);
                     fakechar.dropMessage(1, "Transaction failed since the shop owner can't hold any more mesos.");
+                    return false;
+                }
+
+                if (!BotHoldings.grantItem(fakechar, newItem)) {
+                    BotHoldings.grantMeso(fakechar, price);
+                    fakechar.dropMessage(1, "Your inventory is full. Please clear a slot before buying this item.");
                     return false;
                 }
 

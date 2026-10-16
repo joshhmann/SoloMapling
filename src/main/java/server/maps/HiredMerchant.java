@@ -35,6 +35,7 @@ import net.packet.Packet;
 import net.server.Server;
 import server.ItemInformationProvider;
 import server.Trade;
+import soloMapling.ArtificialPlayer.BotHoldings;
 import tools.DatabaseConnection;
 import tools.PacketCreator;
 import tools.Pair;
@@ -830,10 +831,23 @@ public class HiredMerchant extends AbstractMapObject {
     /*
     SoloMapling allows bots to buy
      */
-    public void botBuy(Character fakechar, PlayerShopItem pItem, short quantity) {
+    public boolean botBuy(Character fakechar, PlayerShopItem pItem, short quantity) {
         synchronized (items) {
             Item newItem = pItem.getItem().copy();
+            newItem.setQuantity((short) (pItem.getItem().getQuantity() * quantity));
             int price = (int) Math.min((float) pItem.getPrice() * quantity, Integer.MAX_VALUE);
+
+            if (!BotHoldings.spendMeso(fakechar, price)) {
+                fakechar.dropMessage(1, "You don't have enough mesos to purchase this item.");
+                return false;
+            }
+
+            if (!BotHoldings.grantItem(fakechar, newItem)) {
+                BotHoldings.grantMeso(fakechar, price);
+                fakechar.dropMessage(1, "Your inventory is full. Please clear a slot before buying this item.");
+                return false;
+            }
+
             price -= Trade.getFee(price);  // thanks BHB for pointing out trade fees not applying here
 
             synchronized (sold) {
@@ -879,6 +893,7 @@ public class HiredMerchant extends AbstractMapObject {
             } catch (Exception e) {
                 e.printStackTrace();
             }
+            return true;
         }
     }
 

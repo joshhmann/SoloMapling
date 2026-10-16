@@ -1147,7 +1147,7 @@ final class BotNavigationManager {
                             0);
                 }
                 logSlowPathfind(graph, map, startPos, startRegionId, targetRegionId, targetPos, pathfindCaller, profile);
-                BotPerformanceMonitor.recordPathfind(pathfindCaller, System.nanoTime() - startedAt);
+                BotPerformanceMonitor.recordPathfind(System.nanoTime() - startedAt);
             }
         }
     }

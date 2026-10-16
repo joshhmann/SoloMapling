@@ -14,6 +14,14 @@ import static soloMapling.ArtificialPlayer.BotLogic.generateCleanItemEquip;
 import static soloMapling.ArtificialPlayer.BotLogic.generateCleanItemWithQty;
 import static soloMapling.DebugUtilities.debugprint;
 
+/*
+ * Trade window commands for a bot speaker.
+ * <p>
+ * A bot's item offers are generated for the window (generateCleanItemEquip / generateCleanItemWithQty) instead of
+ * being taken from its inventory, so they are window-only value: they are never credited back to the bot, whether
+ * the entries are swapped out or the trade is cancelled - see Trade.cancel. A bot's mesos, by contrast, are real
+ * and are debited through Trade.setMeso when offered and refunded by Trade.cancel.
+ */
 public class BotTradeCommands {
 
     private static boolean isValidTrade(Character fakechar) {
@@ -63,8 +71,11 @@ public class BotTradeCommands {
         if (amount < 0 || amount > 2147483647) {
             throw new IllegalArgumentException("setMeso must be positive amount or less than max meso");
         }
-        if (isValidTrade(fakechar)) {
-            fakechar.getTrade().setMesoBot(amount);
+        if (isValidTrade(fakechar) && !fakechar.getTrade().isLocked()) {
+            // The offered amount is real mesos the bot hands over: Trade.setMeso debits them and leaves the offer
+            // empty when the bot cannot afford it, so a bot can never post mesos it does not hold. A locked trade
+            // is already confirmed and refuses offer changes, so the offer is left as it stands.
+            fakechar.getTrade().setMeso(amount);
         }
     }
 
@@ -192,6 +203,8 @@ public class BotTradeCommands {
     }
 
     private static boolean swapItemToTradeWindow(Character fakechar, Item tradeItem, int slot) {
+        // The replaced item leaves the window with the swap. It is a generated offer like the one replacing it
+        // (see the class note), so it is dropped here rather than credited back - an offer is window-only.
         tradeItem.setPosition((short) slot);
         boolean added = fakechar.getTrade().swapItem(tradeItem);
         if (added) {

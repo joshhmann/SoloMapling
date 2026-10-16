@@ -2790,9 +2790,10 @@ public class MapleMap {
      * @param source
      * @param packet
      * @param repeatToSource
+     * @return how many map occupants the packet reached
      */
-    public void broadcastMessage(Character source, Packet packet, boolean repeatToSource) {
-        broadcastMessage(repeatToSource ? null : source, packet, Double.POSITIVE_INFINITY, source.getPosition());
+    public int broadcastMessage(Character source, Packet packet, boolean repeatToSource) {
+        return broadcastMessage(repeatToSource ? null : source, packet, Double.POSITIVE_INFINITY, source.getPosition());
     }
 
     /**
@@ -2828,7 +2829,8 @@ public class MapleMap {
         broadcastMessage(source, packet, getRangedDistance(), rangedFrom);
     }
 
-    private void broadcastMessage(Character source, Packet packet, double rangeSq, Point rangedFrom) {
+    private int broadcastMessage(Character source, Packet packet, double rangeSq, Point rangedFrom) {
+        int recipients = 0;
         chrRLock.lock();
         try {
             for (Character chr : characters) {
@@ -2836,15 +2838,18 @@ public class MapleMap {
                     if (rangeSq < Double.POSITIVE_INFINITY) {
                         if (rangedFrom.distanceSq(chr.getPosition()) <= rangeSq) {
                             chr.sendPacket(packet);
+                            recipients++;
                         }
                     } else {
                         chr.sendPacket(packet);
+                        recipients++;
                     }
                 }
             }
         } finally {
             chrRLock.unlock();
         }
+        return recipients;
     }
 
     private void updateBossSpawn(Monster monster) {
@@ -3695,7 +3700,10 @@ public class MapleMap {
         return closest;
     }
 
-    private static double getCurrentSpawnRate(int numPlayers) {
+    // Occupancy -> fraction of a map's spawn points kept populated (getNumShouldSpawn's factor).
+    // Public so capacity estimates outside the map (offscreen reward budgets) reuse this exact rule
+    // instead of minting a second rate.
+    public static double getCurrentSpawnRate(int numPlayers) {
         // SoloMapling experiment: halved density, 2x pass rate — see Fable Plan 2026-07-07
         return 0.35 + (0.025 * Math.min(6, numPlayers));
     }

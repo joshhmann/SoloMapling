@@ -4,6 +4,7 @@ import client.Character;
 import server.life.Monster;
 import server.maps.MapObject;
 import soloMapling.ArtificialPlayer.BotSpotClaims;
+import soloMapling.ArtificialPlayer.GCMoveSystem.BotPerformanceMonitor;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 
 import java.awt.Point;
@@ -309,17 +310,19 @@ final class StackStrategy implements GrindStrategy {
             state = State.SELECT_STACK;
             return;
         }
+        long scanStart = System.nanoTime();
         Monster t = stickyTarget(chr, st);
         if (t == null) {
             t = acquireTarget(chr, st);
             b.targetOid = (t != null) ? t.getObjectId() : -1;
             b.resetApproachProgress(chr);
         }
+        BotPerformanceMonitor.recordCombatScan(System.nanoTime() - scanStart);
         if (t == null) {
             enterWait(chr);
             return;
         }
-        b.loot.grabLootAtFeet(chr);
+        b.lootAtFeet(chr);
         if (b.inAttackRange(chr, t)) {
             if (b.engage.preSwingAdjust(chr, t)) {
                 return;
@@ -361,7 +364,9 @@ final class StackStrategy implements GrindStrategy {
             state = State.SELECT_STACK;
             return;
         }
+        long scanStart = System.nanoTime();
         Monster t = acquireTarget(chr, st);
+        BotPerformanceMonitor.recordCombatScan(System.nanoTime() - scanStart);
         if (t != null) {
             b.targetOid = t.getObjectId();
             b.resetApproachProgress(chr);
@@ -371,7 +376,7 @@ final class StackStrategy implements GrindStrategy {
         }
         b.markProgress(); // patience at a claimed stack is healthy waiting, not a wedge
         int[] leash = leash(chr);
-        if (b.loot.tryWalkAndLoot(chr, leash[0], leash[1], Math.max(300, (st.x1() - st.x0()) / 2))) {
+        if (b.walkAndLoot(chr, leash[0], leash[1], Math.max(300, (st.x1() - st.x0()) / 2))) {
             return;
         }
         if (now() - waitStartedMs >= WAIT_PATIENCE_MS && now() - b.lastKillMs >= UNPRODUCTIVE_MS) {
