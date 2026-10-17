@@ -117,9 +117,14 @@ public class SocialBot extends BotSM {
     public void checkPrioritySpeed() {
         // Snappy while a player is mid-conversation, and also while the bot is armed after saying yes -
         // so pollRecruitInvite drains the incoming invite promptly instead of dropping to slow cadence
-        // once resetConversation ends the exchange.
-        if (hasActiveRespondant() || BotRecruitManager.isArmed(getChr().getId())) {
-            setPriorityHigh();
+        // once resetConversation ends the exchange. The armed window is the shared commitment rule
+        // (BotCommitments, ticket 05); the open conversation stays this type's own live-local clause
+        // because a respondant has no owner-side expiry (see BotCommitments).
+        if (keepAwakeForCommitment()) {
+            return;
+        }
+        if (hasActiveRespondant()) {
+            pinFastCadence();
             return;
         }
         if (checkMainPlayersOnMap()) {

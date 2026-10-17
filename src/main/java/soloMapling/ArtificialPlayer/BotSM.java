@@ -14,6 +14,7 @@ import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeLogic;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeSM;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeWants;
 import soloMapling.ArtificialPlayer.GCMoveSystem.BotPerformanceMonitor;
+import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 import soloMapling.ArtificialPlayer.GCMoveSystem.LodCounts;
 import soloMapling.server.EventMessageSystem.BotEventBuffer;
 import soloMapling.server.EventMessageSystem.EventBus;
@@ -255,6 +256,16 @@ public abstract class BotSM implements EventSubscriber {
                 if (tradeHandler.verifyTradePartner()) {
                     debugprint("verifyTradePartner");
                     tradeInitialized(getTradeMode());
+                    // Ticket 05: the open window owns the bot's position until the trade settles - the
+                    // movement driver holds the bot where it stands instead of walking its move intent
+                    // out from under the window (see BotCommitments / BotCommitmentHold).
+                    // Guarded on a window actually existing: the latch must never be armed without one, so a
+                    // type that runs its own trade flow (DropGameBot keeps no BotTradeSM and rewrites TRADING
+                    // back to RUNNING) is still unbound by the movement driver's own check that the Trade is
+                    // live, and no type can be frozen by an arm whose window was already gone.
+                    if (getChr().getTrade() != null) {
+                        GCMovement.holdForCommitment(getChr());
+                    }
                     setState(BotState.TRADING);
                     break;
                 }
@@ -359,6 +370,14 @@ public abstract class BotSM implements EventSubscriber {
     private volatile boolean cadenceObserved = true; // startScheduledTask begins at the normal 2-6s cadence
 
     public void checkPrioritySpeed() {
+        // Ticket 05 rule: a player-facing commitment in flight (open trade, armed invite window - see
+        // BotCommitments; a type's own live conversation adds itself in its override) is answered on the
+        // fast cadence on whichever side of the observed/offscreen boundary the bot currently sits. The
+        // LOD cadence is a hint for background work, never a reason to make a player wait, and no type's
+        // background pacing override may starve a commitment.
+        if (keepAwakeForCommitment()) {
+            return;
+        }
         boolean observed = checkMainPlayersOnMap();
         if (observed) {
             if (!cadenceObserved) {
@@ -369,6 +388,25 @@ public abstract class BotSM implements EventSubscriber {
         }
         cadenceObserved = false;
         setPriorityLow();
+    }
+
+    // Ticket 05 rule, in one place: while a player-facing commitment is in flight (BotCommitments)
+    // the macro brain runs on the fast cadence, whichever side of the observed/offscreen boundary the
+    // bot is on. True means "handled, don't touch the cadence".
+    protected final boolean keepAwakeForCommitment() {
+        if (!BotCommitments.inFlight(this)) {
+            return false;
+        }
+        pinFastCadence();
+        return true;
+    }
+
+    // Pin the fast cadence for something a real player is waiting on. cadenceObserved is cleared
+    // because the fast cadence is not the observed-state cadence: whatever state the bot is in when
+    // this reason ends, checkPrioritySpeed re-asserts that state's delay on the next tick.
+    protected final void pinFastCadence() {
+        cadenceObserved = false;
+        setPriorityHigh();
     }
 
     // Unobserved macro cadence for this bot type. Jittered so cohorts that flipped to
@@ -484,6 +522,9 @@ public abstract class BotSM implements EventSubscriber {
         clearTradeRequest(getChr());
         tradeHandler.resetTradePartner();
         discardTradeSM();
+        // Ticket 05: the trade settled - release the position hold. This is the single trade exit, so
+        // the hold cannot outlive the window it was armed for.
+        GCMovement.releaseCommitmentHold(getChr());
     }
 
     public BotDialogueHandler getDialogueHandler() {

@@ -86,7 +86,11 @@ public class FollowerBot extends BotSM {
             return;
         }
         if (getState() == BotState.TRADING) {
-            // Trades are sacred: halt the follow session so the bot doesn't walk out of the trade.
+            // Trades are sacred: end the follow/travel sessions for the duration of the window. The
+            // commitment hold (BotCommitmentHold, armed at the TRADING entry in BotSM) freezes the
+            // movement driver, but a frozen bot looks like a stalled hop to the pollers, which warp
+            // (GCTravel.tripHopStuck -> changeMap) rather than wait - so the follow session has to end
+            // here, not idle. The FSM re-arms it on the first tick after the window closes.
             if (!pausedForTrade) {
                 pausedForTrade = true;
                 GCMovement.stop(chr);

@@ -180,6 +180,25 @@ final class GCMovementDriver {
             return;
         }
 
+        // Commitment hold (ticket 05, BotCommitmentHold): a player-facing commitment in flight owns the
+        // bot's position - an open trade window. Freeze the bot where the commitment found it: no nav,
+        // no steering, no player reaction, no move intent consumed, no contact knockback. The hold is
+        // released by the commitment's owner at its single exit (and self-heals here if that owner never
+        // runs), after which the driver resumes the surviving move intent from this exact position.
+        if (BotCommitmentHold.stillHolding(entry)) {
+            boolean airborne = entry.inAir;
+            if (entry.climbing) {
+                BotPhysicsEngine.holdClimb(entry, bot);
+            } else {
+                BotPhysicsEngine.idleOnGround(entry, bot);
+                if (airborne) {
+                    entry.inAir = true; // show the JUMP stance while hovering, like the portal drop
+                }
+            }
+            broadcastIfObserved(entry);
+            return;
+        }
+
         // Contact/fall damage: render the bot taking hits from mobs. Runs before the movement branches
         // so even an idle/standing bot recoils when a mob touches it. Self-gates on LOD (does ~nothing
         // when no real player shares the bot's map) and on the i-frame window.

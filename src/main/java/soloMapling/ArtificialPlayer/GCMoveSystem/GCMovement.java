@@ -243,6 +243,26 @@ public final class GCMovement {
         return (st == null) ? null : st.facingDir < 0;
     }
 
+    // ── Commitment hold (ticket 05) ──────────────────────────────────────────
+
+    /* A player-facing commitment owns the bot's position: hold it exactly where it stands until the
+     * commitment settles (see BotCommitmentHold). No-op when the bot isn't under dynamic control -
+     * nothing is moving it, so there is nothing to freeze. */
+    public static void holdForCommitment(Character bot) {
+        BotMovementState st = bot == null ? null : STATES.get(bot.getId());
+        if (st != null) {
+            BotCommitmentHold.hold(st);
+        }
+    }
+
+    /* The commitment settled: the bot may move again (its surviving move intent replans from here). */
+    public static void releaseCommitmentHold(Character bot) {
+        BotMovementState st = bot == null ? null : STATES.get(bot.getId());
+        if (st != null) {
+            BotCommitmentHold.release(st);
+        }
+    }
+
     // ── Package helpers (used by GCTravel / GCFollow) ────────────────────────
 
     /* Clear only the move/farm target + nav (NOT follow or travel). GCTravel uses this between hops

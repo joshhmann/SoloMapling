@@ -326,12 +326,13 @@ public class TrainingBot extends BotSM {
 
     // Conversing players expect snappy replies; and once the bot has said "invite me" it must keep
     // ticking fast through the whole armed window so pollRecruitInvite drains the incoming invite
-    // promptly (not just while the menu is open). Otherwise the base observed/unobserved policy holds
-    // (including the 60-120s deep-grind override below).
+    // promptly (not just while the menu is open). The armed window is covered once, for every type, by
+    // the base class's commitment gate (BotCommitments) - which also outranks the 60-120s deep-grind
+    // override below - so only the bot's own menu is left here.
     @Override
     public void checkPrioritySpeed() {
-        if (recruitingNow()) {
-            setPriorityHigh();
+        if (menuActive()) {
+            pinFastCadence();
             return;
         }
         super.checkPrioritySpeed();

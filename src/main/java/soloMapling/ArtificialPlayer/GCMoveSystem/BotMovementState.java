@@ -134,6 +134,13 @@ class BotMovementState {
     Point coarsePlanTarget = null;
     int coarsePlanMapId = -1;
     boolean coarseActive = false;
+    // Commitment hold (ticket 05): a player-facing commitment that owns the bot's position - an open
+    // trade window - freezes the driver where the commitment found the bot. The move intent survives;
+    // the plan does not (see BotCommitmentHold). Armed at the TRADING entry, released at the single
+    // trade exit.
+    // Note: armed by the bot's macro tick (BotSM trade entry) and read every tick by the movement
+    // driver on its own thread - volatile for the same reason as resting/grinding/tickStopped.
+    volatile boolean heldForCommitment = false;
     // Organic map-entry drop: epoch-ms at which the bot, after appearing at the spawn portal,
     // releases its natural fall to the floor. 0 = no pending drop. (Mirrors the recorded engine's
     // teleport-above -> load delay -> drop-down.) Set on map change, consumed by the driver.

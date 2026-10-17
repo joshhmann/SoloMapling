@@ -347,25 +347,32 @@ class BotTransitionBoundaryTest {
     @Test
     void pendingRecruitStateSurvivesPromotion() {
         BotRecruitManager.clearHandoffs(BOT_ID);
-        Character bot = newBot();
-        BotRecruitManager.setPendingLeader(BOT_ID, 4242);
-        BotRecruitManager.markStationHere(BOT_ID);
-        // The invite window the doc names (BotTransitionBoundary.java comments BotRecruitManager.ARMED as
-        // durable): arm it through the real decision so the assertion cannot drift from the producer.
-        Character player = mock(Character.class);
-        when(player.getId()).thenReturn(RECRUITER_ID);
-        when(player.getName()).thenReturn("Recruiter");
-        assertEquals(RecruitAnswer.ACCEPTED, BotRecruitManager.rollPartyAsk(bot, player, 1.0, false));
-        assertTrue(BotRecruitManager.isArmed(BOT_ID), "fixture must be armed before promotion");
+        try {
+            Character bot = newBot();
+            BotRecruitManager.setPendingLeader(BOT_ID, 4242);
+            BotRecruitManager.markStationHere(BOT_ID);
+            // The invite window the doc names (BotTransitionBoundary.java comments BotRecruitManager.ARMED as
+            // durable): arm it through the real decision so the assertion cannot drift from the producer.
+            Character player = mock(Character.class);
+            when(player.getId()).thenReturn(RECRUITER_ID);
+            when(player.getName()).thenReturn("Recruiter");
+            assertEquals(RecruitAnswer.ACCEPTED, BotRecruitManager.rollPartyAsk(bot, player, 1.0, false));
+            assertTrue(BotRecruitManager.isArmed(BOT_ID), "fixture must be armed before promotion");
 
-        promote(offscreenState(bot), bot);
+            promote(offscreenState(bot), bot);
 
-        // An armed window is a wall-clock deadline the bot still owns, on the same map: promotion may
-        // neither disarm it nor hand it to another player.
-        assertTrue(BotRecruitManager.isArmed(BOT_ID), "invite window survives promotion");
-        assertEquals(RECRUITER_ID, BotRecruitManager.armedInviterId(BOT_ID), "still armed for the same player");
-        assertEquals(4242, BotRecruitManager.consumePendingLeader(BOT_ID));
-        assertTrue(BotRecruitManager.consumeStationHere(BOT_ID));
+            // An armed window is a wall-clock deadline the bot still owns, on the same map: promotion may
+            // neither disarm it nor hand it to another player.
+            assertTrue(BotRecruitManager.isArmed(BOT_ID), "invite window survives promotion");
+            assertEquals(RECRUITER_ID, BotRecruitManager.armedInviterId(BOT_ID), "still armed for the same player");
+            assertEquals(4242, BotRecruitManager.consumePendingLeader(BOT_ID));
+            assertTrue(BotRecruitManager.consumeStationHere(BOT_ID));
+        } finally {
+            // The window is process-wide and lives for INVITE_WINDOW_MS (200 s), far past this suite: any
+            // test that reads it later (e.g. the cadence rule) must not see this fixture's arm.
+            BotRecruitManager.clearArmed(BOT_ID);
+            BotRecruitManager.clearHandoffs(BOT_ID);
+        }
     }
 
     @Test
