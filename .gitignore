@@ -35,3 +35,6 @@ src/main/java/soloMapling/Documents/Future Systems and Ideas.md
 src/main/java/soloMapling/Documents/Continuation Roadmap.md
 /src/main/java/soloMapling/Documents/3 Dev Diary 2 - Older stuff
 /cache
+
+# graphify knowledge-graph cache (derived; rebuilt by `graphify update .`)
+/graphify-out
