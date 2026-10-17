@@ -9,6 +9,7 @@ import server.maps.MapleMap;
 import server.maps.Portal;
 import soloMapling.ArtificialPlayer.BotAttackSystem.BotAttackDriver;
 import soloMapling.ArtificialPlayer.BotAttackSystem.BotBuffConfig;
+import soloMapling.ArtificialPlayer.BotStore;
 import soloMapling.ArtificialPlayer.BotAttackSystem.BotBuffDriver;
 import soloMapling.ArtificialPlayer.BotAttackSystem.BotBuffEffects;
 import soloMapling.ArtificialPlayer.BotCommandsPack.MegaphoneCommands;
@@ -642,8 +643,9 @@ public class ArtificialPlayerCommand extends Command {
         Point pos = c.getPlayer().getPosition();
 
         List<Integer> spawned = new ArrayList<>();
+        int slotBase = BotStore.nextDynamicSlots(Math.max(1, count));
         for (int i = 0; i < count; i++) {
-            int botId = BotGeneration.createBot(pos, map, baseClass, band[0], band[1]);
+            int botId = BotGeneration.createBot(slotBase + i, pos, map, baseClass, band[0], band[1]);
             if (autoAttack) {
                 Character fakechar = BotHelpers.getCharFromChannelStorage(botId);
                 if (fakechar != null) {
@@ -745,10 +747,11 @@ public class ArtificialPlayerCommand extends Command {
 
         Point pos = c.getPlayer().getPosition();
         List<Integer> spawned = new ArrayList<>();
+        int slotBase = BotStore.nextDynamicSlots(Math.max(1, count));
         for (int i = 0; i < count; i++) {
             // Decorate ONCE with the forced job (level + class-coherent gear + NX in a single pass, the same
             // path !bot spawn uses) — re-decorating after createBot left the bot showing its base look.
-            int botId = BotGeneration.createBot(pos, map, baseClass, level, level, job.getId());
+            int botId = BotGeneration.createBot(slotBase + i, pos, map, baseClass, level, level, job.getId());
             Character bot = BotHelpers.getCharFromChannelStorage(botId);
             if (bot == null) {
                 continue;

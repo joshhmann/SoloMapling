@@ -7,7 +7,6 @@ import server.maps.MapleMap;
 import soloMapling.ArtificialPlayer.BotAttackSystem.BotBuffDriver;
 import soloMapling.ArtificialPlayer.BotBuffRequestSystem.BotBuffRequestHandler;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
-import soloMapling.server.SoloMaplingConstants;
 import soloMapling.server.SoloMaplingUtilities;
 
 import java.awt.*;
@@ -31,10 +30,6 @@ public class BotGeneration {
 
     // Bot generation - handles anything related to putting the bots in the server
 
-    // Atomic because bots spawn in parallel - a plain int would let two threads
-    // grab the same id, silently overwriting one bot with another in storage.
-    private static final AtomicInteger currentBotCount = new AtomicInteger(100);
-
     /**
      * Worst-case duration of the spawn choreography (pre-drop delay 0.5-1.2s
      * + portal lag 1.5s + drop-down playback + optional turn-around delay
@@ -44,9 +39,14 @@ public class BotGeneration {
      */
     public static final long SPAWN_CHOREOGRAPHY_MAX_MS = 7000;
 
-    /** Total number of bots created since server start (for startup logging). */
+    /**
+     * Bots placed since server start, restored ones included (for startup logging). Counted where the
+     * bots are placed, because a bot's slot no longer says anything about how many have been placed.
+     */
+    private static final AtomicInteger placedBots = new AtomicInteger();
+
     public static int getBotsCreatedCount() {
-        return currentBotCount.get() - 100;
+        return placedBots.get();
     }
 
 
@@ -71,16 +71,24 @@ public class BotGeneration {
         return consoleBot;
     }
 
-    public static int createBot(Point pos, MapleMap map) {
-        return createBot(pos, map, 0, 0, 0);
+    public static int createBot(int slot, Point pos, MapleMap map) {
+        return createBot(slot, pos, map, 0, 0, 0, 0);
     }
 
-    public static int createBot(Point pos, MapleMap map, int baseClass, int minLevel, int maxLevel) {
-        return createBot(pos, map, baseClass, minLevel, maxLevel, 0);
+    public static int createBot(int slot, Point pos, MapleMap map, int baseClass, int minLevel, int maxLevel) {
+        return createBot(slot, pos, map, baseClass, minLevel, maxLevel, 0);
     }
 
-    // forcedJobId > 0 pins the exact job (GM 'trainhere' test spawn); 0 = a random job for the class.
-    public static int createBot(Point pos, MapleMap map, int baseClass, int minLevel, int maxLevel, int forcedJobId) {
+    /**
+     * Creates one bot at the given slot of the store's key space, which the caller owns: a
+     * {@link BotStore#planSlot(int, int, int) plan slot} for a boot wave (stable across boots, so the bot
+     * is adopted rather than minted), or {@link BotStore#nextDynamicSlot() nextDynamicSlot()} for an
+     * on-demand spawn, which is always a brand new bot.
+     *
+     * @param forcedJobId &gt; 0 pins the exact job (GM 'trainhere' test spawn); 0 = a random job for the class.
+     */
+    public static int createBot(int slot, Point pos, MapleMap map, int baseClass, int minLevel, int maxLevel,
+                                int forcedJobId) {
         int cid = 2; // CID 2 = Base Bot Character
 
         Character bot = null;
@@ -90,16 +98,39 @@ public class BotGeneration {
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        int botId = SoloMaplingConstants.GameConstants.BOT_BASE_ID + currentBotCount.getAndIncrement();
+        if (bot == null) {
+            return -1;
+        }
+        // The slot is spent only once the load has succeeded: cohorts spawn in parallel, so a slot given
+        // back after a failure would not go to the bot the wave meant to have it anyway.
+        int botId = BotStore.BOT_ID_BASE + slot;
         bot = setBotStats(bot, botId); // Bot onDemandBot
+        // Ticket 06: the slot's stored bot, if this plan position has been filled in an earlier run, keeps
+        // its identity, progression, looks, holdings and last-seen placement - so it must not be decorated
+        // again (decoration would re-roll level, job and appearance). The identity is applied before the
+        // bot joins the map, so the spawn packet already carries the stored name instead of the
+        // placeholder one. On-demand spawns never adopt: their slot is arrival order, not a plan position.
+        boolean adopted = BotStore.isPlanned(slot) && BotStore.restoreIdentity(bot);
         addBotToServer(bot);
         placeBotOnMap(bot, pos, map);
-        // Decorate before the drop-down plays so the bot arrives fully dressed
-        // (decoration is an in-memory cache lookup, takes microseconds).
-        if (baseClass <= 0) {
-            setBotVariables(bot);
+        placedBots.incrementAndGet();
+        if (adopted) {
+            BotStore.restorePlacement(bot, map);
         } else {
-            setBotVariables(bot, baseClass, minLevel, maxLevel, forcedJobId);
+            // Decorate before the drop-down plays so the bot arrives fully dressed
+            // (decoration is an in-memory cache lookup, takes microseconds).
+            if (baseClass <= 0) {
+                setBotVariables(bot);
+            } else {
+                setBotVariables(bot, baseClass, minLevel, maxLevel, forcedJobId);
+            }
+            // A brand new bot is minted with the initial-creator grants and gets its store row right away,
+            // so a restart between creation and its first save cannot re-mint it as somebody else.
+            try {
+                BotStore.recordFirstCreation(bot);
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
         }
         // Choreography sleeps ~2.5-6s in total; play it on a virtual thread so
         // mass spawning isn't gated on each bot's arrival animation. Drop-down ->
@@ -181,10 +212,10 @@ public class BotGeneration {
     }
 
     public static void removeBotFromServer(Character fakechar) {
-        // Bots are never saved to the database, so whatever this bot accumulated through the holdings seam
-        // (loot, shop purchases, trade receipts) would simply vanish with it. Settle it onto the map the bot is
-        // leaving — while its map is still available — so the value stays in the world instead of being destroyed.
-        BotHoldings.settle(fakechar);
+        // Ticket 06: a bot's holdings now go into the store with it, so leaving the world costs it nothing.
+        // If the store cannot be written the bot is settled onto the map instead - while the map is still
+        // available - so what it accumulated is never silently destroyed.
+        BotStore.saveThenSettle(fakechar);
         fakechar.getMap().removePlayer(fakechar);
         channel.removePlayer(fakechar);
         world.getPlayerStorage().removePlayer(fakechar.getId());
@@ -214,8 +245,8 @@ public class BotGeneration {
     inside createBot, so it's normally ready on the first check - the 100ms poll
     loop only kicks in as a fallback. If the bot isn't ready after 3000ms, returns null.
      */
-    public static Character createBotPollReadiness(Point position, int mapId) {
-        int botId = BotGeneration.createBot(position, getMapleMapById(mapId));
+    public static Character createBotPollReadiness(int slot, Point position, int mapId) {
+        int botId = BotGeneration.createBot(slot, position, getMapleMapById(mapId));
 
         for (int i = 0; i < 30; i++) { // 30 * 100ms = 3000ms max
             Character fakechar = BotHelpers.getCharFromChannelStorage(botId);

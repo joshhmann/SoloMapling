@@ -4,6 +4,7 @@ import client.Character;
 import server.maps.MapleMap;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 import soloMapling.ArtificialPlayer.BotGeneration;
+import soloMapling.ArtificialPlayer.BotStore;
 import soloMapling.ArtificialPlayer.BotHelpers;
 import soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands;
 import soloMapling.server.ExecutorServiceManager;
@@ -49,7 +50,7 @@ public class PlatformPlacement {
 
     private static final Random random = new Random();
 
-    public static List<Integer> spawnBotsOnMapOnPlatform(int numBots, int mapId, String platform_id) {
+    public static List<Integer> spawnBotsOnMapOnPlatform(int slotBase, int numBots, int mapId, String platform_id) {
         Platform flatPlatform = PlatformParser.parsePlatform(mapId, platform_id);
         List<Point> occupied = Collections.synchronizedList(new ArrayList<>());
         ConcurrentLinkedQueue<Integer> characterIds = new ConcurrentLinkedQueue<>();
@@ -68,10 +69,14 @@ public class PlatformPlacement {
         // Use CountDownLatch to wait for all spawns to complete
         CountDownLatch latch = new CountDownLatch(numBots);
 
-        for (Point spawn : spawnPoints) {
+        for (int i = 0; i < spawnPoints.size(); i++) {
+            // The slot is bound to the spawn point's index, not to the order the async spawns start, so the
+            // bot standing on the i-th point keeps that point's identity boot after boot.
+            int slot = slotBase + i;
+            Point spawn = spawnPoints.get(i);
             ExecutorServiceManager.runAsync(() -> {
                 try {
-                    Character fakechar = createBotWithRetry(spawn, mapId, 5);
+                    Character fakechar = createBotWithRetry(slot, spawn, mapId, 5);
                     if (fakechar != null) {
                         characterIds.add(fakechar.getId());
                     } else {
@@ -108,7 +113,7 @@ public class PlatformPlacement {
     }
 
 
-    public static List<Integer> spawnBotsOnMapOnPlatformInRadius(int numBots, int mapId, String platform_id, Point center, int radius) {
+    public static List<Integer> spawnBotsOnMapOnPlatformInRadius(int slotBase, int numBots, int mapId, String platform_id, Point center, int radius) {
         Platform flatPlatform = PlatformParser.parsePlatform(mapId, platform_id);
         List<Point> occupied = Collections.synchronizedList(new ArrayList<>());
         ConcurrentLinkedQueue<Integer> characterIds = new ConcurrentLinkedQueue<>();
@@ -119,6 +124,7 @@ public class PlatformPlacement {
 
         // Pre-generate all spawn points within radius
         List<Point> spawnPoints = new ArrayList<>();
+        List<Integer> spawnSlots = new ArrayList<>();
         for (int i = 0; i < numBots; i++) {
             Point spawn = findUnoccupiedPointInRadius(flatPlatform, occupied, center, radius);
             if (spawn == null) {
@@ -127,14 +133,19 @@ public class PlatformPlacement {
             }
             occupied.add(spawn);
             spawnPoints.add(spawn);
+            // The slot follows the requested bot, not the list position, so a point this run could not find
+            // leaves a hole in the key space instead of shifting every later bot onto its neighbour's row.
+            spawnSlots.add(slotBase + i);
         }
 
         CountDownLatch latch = new CountDownLatch(spawnPoints.size());
 
-        for (Point spawn : spawnPoints) {
+        for (int i = 0; i < spawnPoints.size(); i++) {
+            int slot = spawnSlots.get(i);
+            Point spawn = spawnPoints.get(i);
             ExecutorServiceManager.runAsync(() -> {
                 try {
-                    Character fakechar = createBotWithRetry(spawn, mapId, 5);
+                    Character fakechar = createBotWithRetry(slot, spawn, mapId, 5);
                     if (fakechar != null) {
                         characterIds.add(fakechar.getId());
                     } else {
@@ -169,7 +180,15 @@ public class PlatformPlacement {
         return new ArrayList<>(characterIds);
     }
 
+    /**
+     * A hand-run filler cohort (GM command). Its bots have no plan position, so they draw a run of
+     * on-demand slots: {@code numBots} bots, one slot each, in the order the cohort places them.
+     */
     public static List<Integer> spawnFillerBots(int numBots, int mapId, Point p1, Point p2) {
+        return spawnFillerBots(BotStore.nextDynamicSlots(Math.max(1, numBots)), numBots, mapId, p1, p2);
+    }
+
+    public static List<Integer> spawnFillerBots(int slotBase, int numBots, int mapId, Point p1, Point p2) {
         int minX = Math.min(p1.x, p2.x);
         int maxX = Math.max(p1.x, p2.x);
         int baseY = p1.y;
@@ -188,10 +207,12 @@ public class PlatformPlacement {
         CountDownLatch latch = new CountDownLatch(spawnPoints.size());
         double chairChance = 0.20;
 
-        for (Point spawn : spawnPoints) {
+        for (int i = 0; i < spawnPoints.size(); i++) {
+            int slot = slotBase + i;
+            Point spawn = spawnPoints.get(i);
             ExecutorServiceManager.runAsync(() -> {
                 try {
-                    Character fakechar = createBotWithRetry(spawn, mapId, 5);
+                    Character fakechar = createBotWithRetry(slot, spawn, mapId, 5);
                     if (fakechar != null) {
                         characterIds.add(fakechar.getId());
                         if (Math.random() < chairChance) {
@@ -233,7 +254,12 @@ public class PlatformPlacement {
         return new ArrayList<>(characterIds);
     }
 
+    /** The locked-Y twin of {@link #spawnFillerBots(int, int, Point, Point)}. */
     public static List<Integer> spawnFillerBotsLockedY(int numBots, int mapId, Point p1, Point p2) {
+        return spawnFillerBotsLockedY(BotStore.nextDynamicSlots(Math.max(1, numBots)), numBots, mapId, p1, p2);
+    }
+
+    public static List<Integer> spawnFillerBotsLockedY(int slotBase, int numBots, int mapId, Point p1, Point p2) {
         int minX = Math.min(p1.x, p2.x);
         int maxX = Math.max(p1.x, p2.x);
         int baseY = p1.y;
@@ -255,10 +281,12 @@ public class PlatformPlacement {
         CountDownLatch latch = new CountDownLatch(spawnPoints.size());
         double chairChance = 0.20;
 
-        for (Point spawn : spawnPoints) {
+        for (int i = 0; i < spawnPoints.size(); i++) {
+            int slot = slotBase + i;
+            Point spawn = spawnPoints.get(i);
             ExecutorServiceManager.runAsync(() -> {
                 try {
-                    Character fakechar = createBotWithRetry(spawn, mapId, 5);
+                    Character fakechar = createBotWithRetry(slot, spawn, mapId, 5);
                     if (fakechar != null) {
                         characterIds.add(fakechar.getId());
                         if (Math.random() < chairChance) {
@@ -312,10 +340,10 @@ public class PlatformPlacement {
     }
 
 
-    public static Character createBotWithRetry(Point spawn, int mapId, int maxRetries) {
+    public static Character createBotWithRetry(int slot, Point spawn, int mapId, int maxRetries) {
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                Character fakechar = createBotPollReadiness(spawn, mapId);
+                Character fakechar = createBotPollReadiness(slot, spawn, mapId);
                 if (fakechar != null) {
                     return fakechar;
                 }

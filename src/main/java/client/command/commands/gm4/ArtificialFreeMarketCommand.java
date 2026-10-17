@@ -4,6 +4,7 @@ import client.Character;
 import client.Client;
 import client.command.Command;
 import soloMapling.ArtificialPlayer.BotHelpers;
+import soloMapling.ArtificialPlayer.BotStore;
 import soloMapling.FreeMarket.ArtificialFreeMarket;
 import soloMapling.server.ExecutorServiceManager;
 
@@ -108,7 +109,8 @@ public class ArtificialFreeMarketCommand extends Command {
             case "Test":
                 break;
             case "botshop":
-                ArtificialFreeMarket.createBotShopAtLocation(c.getPlayer().getPosition(), c.getPlayer().getMapId());
+                ArtificialFreeMarket.createBotShopAtLocation(BotStore.nextDynamicSlot(),
+                        c.getPlayer().getPosition(), c.getPlayer().getMapId());
                 break;
             default:
                 player.yellowMessage("Invalid command - handleStringIntCommand");

@@ -72,6 +72,7 @@ import server.life.PlayerNPC;
 import server.quest.Quest;
 import service.NoteService;
 import soloMapling.ArtificialPlayer.BotClientHandler;
+import soloMapling.ArtificialPlayer.BotStore;
 import soloMapling.Environment.EnvironmentManager;
 import soloMapling.server.MethodScheduler;
 import tools.DatabaseConnection;
@@ -1938,6 +1939,19 @@ public class Server {
         if (getWorlds() == null) {
             return;//already shutdown
         }
+
+        // Ticket 06: bots are not part of the player disconnect path below - they never log in, and the one
+        // Client they share has no player attached to it - so their state is settled and written here,
+        // while the worlds (and therefore their maps) are still alive. An open trade window is closed first:
+        // it holds items and mesos out of both wallets, and the player on the other side is saved later in
+        // this same sequence, so a window left open would be written out as a loss for that player.
+        for (World w : getWorlds()) {
+            PlayerStorage players = w.getPlayerStorage();
+            if (players != null) {
+                BotStore.settleAndSaveAll(new ArrayList<>(players.getAllCharacters()));
+            }
+        }
+
         for (World w : getWorlds()) {
             w.shutdown();
         }

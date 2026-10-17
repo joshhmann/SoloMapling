@@ -23,6 +23,13 @@ import client.Character;
 import config.YamlConfig;
 import net.server.PlayerStorage;
 import net.server.world.World;
+import soloMapling.ArtificialPlayer.BotHelpers;
+import soloMapling.ArtificialPlayer.BotStore;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static soloMapling.server.ExecutorServiceManager.runAsync;
 
 /**
  * @author Ronan
@@ -36,10 +43,22 @@ public class CharacterAutosaverTask extends BaseTask implements Runnable {  // t
         }
 
         PlayerStorage ps = wserv.getPlayerStorage();
+        List<Character> bots = new ArrayList<>();
         for (Character chr : ps.getAllCharacters()) {
-            if (chr != null && chr.isLoggedin()) {
-                chr.saveCharToDB(false);
+            if (chr == null) {
+                continue;
             }
+            if (chr.isLoggedin()) {
+                chr.saveCharToDB(false);
+            } else if (BotHelpers.isBot(chr)) {
+                // Bots are never logged in, so the player sweep above skips them by construction; their
+                // state is written through the bot store. Snapshot them here and hand the DB work to a
+                // virtual thread - this task runs on the shared timer thread.
+                bots.add(chr);
+            }
+        }
+        if (!bots.isEmpty()) {
+            runAsync(() -> BotStore.saveAll(bots));
         }
     }
 

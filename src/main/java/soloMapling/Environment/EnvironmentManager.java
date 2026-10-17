@@ -5,6 +5,7 @@ import client.Job;
 import server.maps.MapleMap;
 import soloMapling.ArtificialPlayer.BotGeneration;
 import soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands;
+import soloMapling.ArtificialPlayer.BotStore;
 import soloMapling.ArtificialPlayer.BotDecoratorSystem.BotDecorate;
 import soloMapling.ArtificialPlayer.BotDecoratorSystem.BotDecorationQueue;
 import soloMapling.ArtificialPlayer.BotDecoratorSystem.BotEquipChecker;
@@ -92,6 +93,15 @@ public class EnvironmentManager {
     private static final int MAPLE_ISLAND_TUTORIAL = 10000;
     private static final int OPQ_LOBBY = 200080101;
 
+    /*
+     * Groups the filler cohorts below spread their spots over. A GM run of one of these helpers draws a
+     * block of BotStore.SLOTS_PER_GROUP slots per group, so each count must cover the highest group index
+     * its helper uses (see reserveDynamicGroups).
+     */
+    private static final int HENESYS_FILLER_GROUPS = 10;
+    private static final int HENESYS_MARKET_FILLER_GROUPS = 9;
+    private static final int HENESYS_PARK_FILLER_GROUPS = 10;
+
     public static void environmentLoadStartup() {
         // EquipMetadataCache + DesirableEquipList are server data, loaded during
         // Server.init() alongside the other WZ-derived data - guaranteed ready
@@ -103,61 +113,61 @@ public class EnvironmentManager {
         BotMapEntryResponder.register();
 
         runWave(1, "Essentials", List.of(
-                () -> spawnCasinoNpcs(),
-                () -> spawnTutorialBot(),
-                () -> spawnHenesysBotsBatch(10, 0, 0, 0),
-                () -> populateFreeMarketRegion("henesys"),
-                () -> spawnFMEntranceBotsBatch(5, 5, 5)
+                slotBase -> spawnCasinoNpcs(),
+                slotBase -> spawnTutorialBot(slotBase),
+                slotBase -> spawnHenesysBotsBatch(slotBase, 10, 0, 0, 0),
+                slotBase -> populateFreeMarketRegion(slotBase, "henesys"),
+                slotBase -> spawnFMEntranceBotsBatch(slotBase, 5, 5, 5)
         ));
 
         runWave(2, "FM buildout", List.of(
-                () -> populateFreeMarketRegion("ludi"),
-                () -> spawnFMEntranceBotsBatch(5, 5, 5),
-                () -> spawnMerchBotsBatch("m1", 2, 2, 1),
-                () -> spawnMerchBotsBatch("m2", 2, 2, 0),
-                () -> spawnMerchBotsBatch("m5", 2, 2, 0),
-                () -> spawnGachaBotsHenesys()
+                slotBase -> populateFreeMarketRegion(slotBase, "ludi"),
+                slotBase -> spawnFMEntranceBotsBatch(slotBase, 5, 5, 5),
+                slotBase -> spawnMerchBotsBatch(slotBase, "m1", 2, 2, 1),
+                slotBase -> spawnMerchBotsBatch(slotBase, "m2", 2, 2, 0),
+                slotBase -> spawnMerchBotsBatch(slotBase, "m5", 2, 2, 0),
+                slotBase -> spawnGachaBotsHenesys(slotBase)
         ));
 
         runWave(3, "Henesys population", List.of(
-                () -> spawnJQBotsPetPark(),
-                () -> spawnHenesysBotsBatch(10, 10, 0, 5),
-                () -> spawnFillerBotsHenesys()
+                slotBase -> spawnJQBotsPetPark(slotBase),
+                slotBase -> spawnHenesysBotsBatch(slotBase, 10, 10, 0, 5),
+                slotBase -> spawnFillerBotsHenesys(slotBase)
         ));
         SocialHotPotatoManager.getInstance().start();
         ConversationManager.getInstance().start();
 
         runWave(4, "Expand FM + Henesys Market", List.of(
-                () -> populateFreeMarketRegion("perion"),
-                () -> spawnFMEntranceBotsBatch(5, 5, 5),
-                () -> spawnMerchBotsBatch("m1", 3, 3, 0),
-                () -> spawnMerchBotsBatch("m2", 2, 2, 1),
-                () -> spawnMerchBotsBatch("m5", 3, 3, 1),
-                () -> spawnFillerBotsHenesysMarket()
+                slotBase -> populateFreeMarketRegion(slotBase, "perion"),
+                slotBase -> spawnFMEntranceBotsBatch(slotBase, 5, 5, 5),
+                slotBase -> spawnMerchBotsBatch(slotBase, "m1", 3, 3, 0),
+                slotBase -> spawnMerchBotsBatch(slotBase, "m2", 2, 2, 1),
+                slotBase -> spawnMerchBotsBatch(slotBase, "m5", 3, 3, 1),
+                slotBase -> spawnFillerBotsHenesysMarket(slotBase)
         ));
 
         runWave(5, "Henesys sub-areas", List.of(
-                () -> populateFreeMarketRegion("elnath"),
-                () -> spawnHenesysBotsBatch(10, 10, 10, 4),
-                () -> spawnFillerBotsHenesysPark(),
-                () -> spawnFillerBotsPotionShop(),
-                () -> spawnFillerBotsGameZone(),
-                () -> spawnGameZoneHostBots()
+                slotBase -> populateFreeMarketRegion(slotBase, "elnath"),
+                slotBase -> spawnHenesysBotsBatch(slotBase, 10, 10, 10, 4),
+                slotBase -> spawnFillerBotsHenesysPark(slotBase),
+                slotBase -> spawnFillerBotsPotionShop(slotBase),
+                slotBase -> spawnFillerBotsGameZone(slotBase),
+                slotBase -> spawnGameZoneHostBots(slotBase)
         ));
 
         runWave(6, "Specialty areas", List.of(
-                () -> spawnBlackjackTables(),
-                () -> spawnDropGameBotPotionShop(),
-                () -> spawnDropGameSpectatorsPotionShop(),
-                () -> spawnSocialBotsPetPark(),
-                () -> convertRandomFillersToScrollBots()
+                slotBase -> spawnBlackjackTables(slotBase),
+                slotBase -> spawnDropGameBotPotionShop(slotBase),
+                slotBase -> spawnDropGameSpectatorsPotionShop(slotBase),
+                slotBase -> spawnSocialBotsPetPark(slotBase),
+                slotBase -> convertRandomFillersToScrollBots()
         ));
 
         runWave(7, "Late arrivals", List.of(
-                () -> spawnOPQBotsInLobby(),
-                () -> spawnMerchBotsBatch("m1", 2, 2, 0),
-                () -> spawnMerchBotsBatch("m2", 2, 2, 1),
-                () -> spawnMerchBotsBatch("m5", 2, 2, 1)
+                slotBase -> spawnOPQBotsInLobby(slotBase),
+                slotBase -> spawnMerchBotsBatch(slotBase, "m1", 2, 2, 0),
+                slotBase -> spawnMerchBotsBatch(slotBase, "m2", 2, 2, 1),
+                slotBase -> spawnMerchBotsBatch(slotBase, "m5", 2, 2, 1)
         ));
 
         // Roaming training grinders. Each cohort = N job-coherent bots at a town's spawn portal; they
@@ -176,24 +186,24 @@ public class EnvironmentManager {
         // homeMapId becomes that junction, GO_TOWN returns there, and the unlisted map just skips shop
         // trips (TrainingBot.doInit / TOWN_SHOPS).
         runWave(8, "Training bots", List.of(
-                () -> GCMovement.mapsWithinHops(MapId.HENESYS, 1),          // prewarm the portal graph once
-                () -> spawnTrainingBotsAt(MapId.LITH_HARBOUR,  20,  1, 15),
-                () -> spawnTrainingBotsAt(MapId.HENESYS,       225, 10, 95),
-                () -> spawnTrainingBotsAt(MapId.KERNING_CITY,  225, 10, 65),
-                () -> spawnTrainingBotsAt(MapId.PERION,        225, 10, 65),
-                () -> spawnTrainingBotsAt(MapId.ELLINIA,       225, 10, 65),
-                () -> spawnTrainingBotsAt(MapId.SLEEPYWOOD,     225, 25, 95),  // town: Sleepy Dungeon + Ant Tunnel I-IV + Forest of Golem
-                () -> spawnTrainingBotsAt(MapId.ANT_TUNNEL_PARK, 180, 40, 95), // deep hub (~9 hops in): Cave of Evil Eye / Grave of Mushmom
-                () -> spawnTrainingBotsAt(MapId.ORBIS,         220, 30, 86),
-                () -> spawnTrainingBotsAt(MapId.LUDIBRIUM,     200, 25, 95),
-                () -> spawnTrainingBotsAt(MapId.PATH_OF_TIME_HUB, 160, 70, 95), // deep hub: Forgotten Path of Time / Clocktower (Platoon Chronos, Papa Pixie → Papulatus)
-                () -> spawnTrainingBotsAt(MapId.EL_NATH,       200, 50, 80),  // town: shops at El Nath Market (potion / equip); grinds Ice Valley + cloud maps
-                () -> spawnTrainingBotsAt(MapId.SHARP_CLIFF_I, 200, 60, 90), // deep hub (Jeff one-way from Ice Valley II): Sharp Cliff II / Wolf Territory / Forest of Dead Trees / Dead Mine
+                slotBase -> GCMovement.mapsWithinHops(MapId.HENESYS, 1),          // prewarm the portal graph once
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.LITH_HARBOUR,  20,  1, 15),
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.HENESYS,       225, 10, 95),
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.KERNING_CITY,  225, 10, 65),
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.PERION,        225, 10, 65),
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.ELLINIA,       225, 10, 65),
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.SLEEPYWOOD,     225, 25, 95),  // town: Sleepy Dungeon + Ant Tunnel I-IV + Forest of Golem
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.ANT_TUNNEL_PARK, 180, 40, 95), // deep hub (~9 hops in): Cave of Evil Eye / Grave of Mushmom
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.ORBIS,         220, 30, 86),
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.LUDIBRIUM,     200, 25, 95),
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.PATH_OF_TIME_HUB, 160, 70, 95), // deep hub: Forgotten Path of Time / Clocktower (Platoon Chronos, Papa Pixie → Papulatus)
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.EL_NATH,       200, 50, 80),  // town: shops at El Nath Market (potion / equip); grinds Ice Valley + cloud maps
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.SHARP_CLIFF_I, 200, 60, 90), // deep hub (Jeff one-way from Ice Valley II): Sharp Cliff II / Wolf Territory / Forest of Dead Trees / Dead Mine
 
-                () -> spawnTrainingBotsAt(MapId.HENESYS,       25,  1,  9),  // beginner sword grinders
-                () -> spawnTrainingBotsAt(MapId.KERNING_CITY,  20,  1,  9),  // beginner sword grinders
-                () -> spawnTrainingBotsAt(MapId.PERION,        20,  1,  9),  // beginner sword grinders
-                () -> spawnTrainingBotsAt(MapId.ELLINIA,       20,  1,  9)  // beginner sword grinders
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.HENESYS,       25,  1,  9),  // beginner sword grinders
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.KERNING_CITY,  20,  1,  9),  // beginner sword grinders
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.PERION,        20,  1,  9),  // beginner sword grinders
+                slotBase -> spawnTrainingBotsAt(slotBase, MapId.ELLINIA,       20,  1,  9)  // beginner sword grinders
 
         ));
 
@@ -201,9 +211,9 @@ public class EnvironmentManager {
         // that until now had only grinders passing through, plus roaming wanderers. Runs after wave 8 so the
         // town nav graphs are already baked by the training cohorts spawned there. Counts are fixed per town
         // in TownPresence.yaml. One task per town so the cohorts spawn in parallel across the pool (like wave 8).
-        List<Runnable> townTasks = new ArrayList<>();
+        List<PlanTask> townTasks = new ArrayList<>();
         for (TownPresenceConfig.TownEntry town : TownPresenceConfig.towns()) {
-            townTasks.add(() -> spawnTown(town));
+            townTasks.add(slotBase -> spawnTown(slotBase, town));
         }
         runWave(9, "Town presence", townTasks);
 
@@ -221,16 +231,21 @@ public class EnvironmentManager {
     // gear set together by the decorator. They self-discover nearby level-appropriate field maps and
     // fan out. A sub-level-10 band spawns Beginners (job 0): the decorator gives them a sword and
     // they fight with a basic skill-0 swing, so low bands are fine (class 1..4 is moot - all sword).
-    private static int spawnTrainingBotsAt(int townMapId, int n, int loLevel, int hiLevel) {
+    private static int spawnTrainingBotsAt(int slotBase, int townMapId, int n, int loLevel, int hiLevel) {
         MapleMap map = getMapleMapById(townMapId);
         if (map == null || map.getPortal(0) == null) {
             debugprint(fmt("TrainingBots: no map / spawn portal for {}", townMapId));
             return 0;
         }
         Point sp = map.getPortal(0).getPosition();
-        int spawned = spawnScatteredTrainingBots(map, sp, n, loLevel, hiLevel).size();
+        int spawned = spawnScatteredTrainingBots(slotBase, map, sp, n, loLevel, hiLevel).size();
         debugprint(fmt("TrainingBots: {} spawned on map {} (lv {}..{})", spawned, townMapId, loLevel, hiLevel));
         return spawned;
+    }
+
+    /** Spawns a cohort by hand: reserves its on-demand slots and returns the created ids. */
+    public static List<Integer> spawnScatteredTrainingBots(MapleMap map, Point anchor, int n, int loLevel, int hiLevel) {
+        return spawnScatteredTrainingBots(BotStore.nextDynamicSlots(n), map, anchor, n, loLevel, hiLevel);
     }
 
     // Spawn n training bots scattered across the map's reachable platforms - an organic ground spot per
@@ -238,14 +253,14 @@ public class EnvironmentManager {
     // instead of stacking everyone on one point. `anchor` seeds the reachability filter (pass the spawn
     // portal, or a GM's position for a dev dry-run) and is the per-bot fallback when the nav graph yields
     // no eligible ledge (empty/unbaked). Returns the created ids, already typed + started as TRAINING_BOTs.
-    public static List<Integer> spawnScatteredTrainingBots(MapleMap map, Point anchor, int n, int loLevel, int hiLevel) {
+    public static List<Integer> spawnScatteredTrainingBots(int slotBase, MapleMap map, Point anchor, int n, int loLevel, int hiLevel) {
         List<Point> spots = BotSpotPicker.pickGroundSpots(map, anchor.x, anchor.y, n);
         List<Integer> ids = new ArrayList<>();
         for (int i = 0; i < n; i++) {
             Point spawnAt = i < spots.size() ? spots.get(i) : anchor;
             int baseClass = BotDecorate.rollBaseClass(); // weighted 1..4 (Thief-heavy, Bowman-rare; Pirate excluded)
             try {
-                int botId = BotGeneration.createBot(spawnAt, map, baseClass, loLevel, hiLevel);
+                int botId = BotGeneration.createBot(slotBase + i, spawnAt, map, baseClass, loLevel, hiLevel);
                 if (botId > 0) {
                     ids.add(botId);
                 }
@@ -263,19 +278,34 @@ public class EnvironmentManager {
     // (YAML-tunable). Called from wave 9; also driven live by !env townpresence.
     public static void spawnTownPresence() {
         for (TownPresenceConfig.TownEntry town : TownPresenceConfig.towns()) {
-            spawnTown(town);
+            spawnTown(BotStore.nextDynamicSlots(townPresenceSize(town)), town);
         }
     }
 
-    // Spawn one town's ambient population: its per-map stationed SocialBots plus its roaming wanderers.
-    public static void spawnTown(TownPresenceConfig.TownEntry town) {
+    /** The slots one town's ambient population needs. */
+    private static int townPresenceSize(TownPresenceConfig.TownEntry town) {
+        int size = town.wanderers();
         for (TownPresenceConfig.MapShare share : town.maps()) {
-            int n = spawnSocialCohort(share.mapId(), share.count(), town.levelLo(), town.levelHi());
+            size += share.count();
+        }
+        return Math.max(1, size);
+    }
+
+    // Spawn one town's ambient population: its per-map stationed SocialBots plus its roaming wanderers.
+    // Each cohort owns a fixed SLOTS_PER_GROUP stride, so a count edited in TownPresence.yaml shifts no
+    // other cohort's stored identities.
+    public static void spawnTown(int slotBase, TownPresenceConfig.TownEntry town) {
+        int group = 0;
+        for (TownPresenceConfig.MapShare share : town.maps()) {
+            int n = spawnSocialCohort(slotBase + group * BotStore.SLOTS_PER_GROUP, share.mapId(), share.count(),
+                    town.levelLo(), town.levelHi());
             debugprint(fmt("TownPresence: {} social bots on map {} ({}, lv {}..{})",
                     n, share.mapId(), town.name(), town.levelLo(), town.levelHi()));
+            group++;
         }
         if (town.wanderers() > 0) {
-            int w = spawnTownWanderers(town.mainMapId(), town.wanderers(), town.levelLo(), town.levelHi());
+            int w = spawnTownWanderers(slotBase + group * BotStore.SLOTS_PER_GROUP, town.mainMapId(),
+                    town.wanderers(), town.levelLo(), town.levelHi());
             debugprint(fmt("TownPresence: {} wanderers on map {} ({})", w, town.mainMapId(), town.name()));
         }
     }
@@ -283,18 +313,27 @@ public class EnvironmentManager {
     // Spawn n stationed ambient SocialBots on a map at anchor-weighted ground spots (near NPCs/shops, on
     // the main ground band, with a thin straggler tail - see TownPresenceSampler). Returns how many created.
     public static int spawnSocialCohort(int mapId, int n, int loLevel, int hiLevel) {
-        return spawnTownCohort(mapId, n, loLevel, hiLevel, BotTypeManager.BotType.SOCIAL_BOT);
+        return spawnTownCohort(BotStore.nextDynamicSlots(n), mapId, n, loLevel, hiLevel, BotTypeManager.BotType.SOCIAL_BOT);
+    }
+
+    public static int spawnSocialCohort(int slotBase, int mapId, int n, int loLevel, int hiLevel) {
+        return spawnTownCohort(slotBase, mapId, n, loLevel, hiLevel, BotTypeManager.BotType.SOCIAL_BOT);
     }
 
     // Spawn n roaming TownWandererBots seeded at anchor-weighted spots on a town's main map; they fan out
     // and drift its map family on their own. The generic (non-Henesys) counterpart to HenesysBot.
     public static int spawnTownWanderers(int mapId, int n, int loLevel, int hiLevel) {
-        return spawnTownCohort(mapId, n, loLevel, hiLevel, BotTypeManager.BotType.TOWN_WANDERER_BOT);
+        return spawnTownCohort(BotStore.nextDynamicSlots(n), mapId, n, loLevel, hiLevel,
+                BotTypeManager.BotType.TOWN_WANDERER_BOT);
+    }
+
+    public static int spawnTownWanderers(int slotBase, int mapId, int n, int loLevel, int hiLevel) {
+        return spawnTownCohort(slotBase, mapId, n, loLevel, hiLevel, BotTypeManager.BotType.TOWN_WANDERER_BOT);
     }
 
     // Shared town-cohort spawn: place n bots at anchor-weighted ground spots on the map (mirrors
     // spawnScatteredTrainingBots but with the weighted sampler), typed as `type`.
-    private static int spawnTownCohort(int mapId, int n, int loLevel, int hiLevel, BotTypeManager.BotType type) {
+    private static int spawnTownCohort(int slotBase, int mapId, int n, int loLevel, int hiLevel, BotTypeManager.BotType type) {
         MapleMap map = getMapleMapById(mapId);
         if (map == null || map.getPortal(0) == null) {
             debugprint(fmt("TownPresence: no map / spawn portal for {}", mapId));
@@ -307,7 +346,7 @@ public class EnvironmentManager {
             Point spawnAt = i < spots.size() ? spots.get(i) : anchor;
             int baseClass = BotDecorate.rollBaseClass(); // weighted 1..4 (Pirate excluded), gear/job set together
             try {
-                int botId = BotGeneration.createBot(spawnAt, map, baseClass, loLevel, hiLevel);
+                int botId = BotGeneration.createBot(slotBase + i, spawnAt, map, baseClass, loLevel, hiLevel);
                 if (botId > 0) {
                     ids.add(botId);
                 }
@@ -320,18 +359,33 @@ public class EnvironmentManager {
     }
 
     /**
+     * The spawn plan of one boot wave. Each task runs in parallel with its siblings and is handed the
+     * slot base of its own position in the wave, so the bots a task spawns keep their stored identities
+     * across restarts no matter what the other tasks do or in what order they finish.
+     */
+    private interface PlanTask {
+        void run(int slotBase);
+    }
+
+    /**
      * Run one startup wave: all tasks in parallel, blocking until the wave
      * completes. Logs start/end with elapsed time and bots spawned. FM room
      * population is fire-and-forget internally, so its bots may be attributed
      * to a later wave's count.
      */
-    private static void runWave(int number, String name, List<Runnable> tasks) {
+    private static void runWave(int number, String name, List<PlanTask> tasks) {
         System.out.println(String.format(
                 "[EnvironmentManager] === Wave %d (%s) starting ===", number, name));
         long start = System.currentTimeMillis();
         int botsBefore = BotGeneration.getBotsCreatedCount();
 
-        runPhase(tasks);
+        List<Runnable> jobs = new ArrayList<>(tasks.size());
+        for (int task = 0; task < tasks.size(); task++) {
+            PlanTask planTask = tasks.get(task);
+            int slotBase = BotStore.planSlot(number, task, 0);
+            jobs.add(() -> planTask.run(slotBase));
+        }
+        runPhase(jobs);
 
         double seconds = (System.currentTimeMillis() - start) / 1000.0;
         int botsSpawned = BotGeneration.getBotsCreatedCount() - botsBefore;
@@ -340,55 +394,60 @@ public class EnvironmentManager {
                 number, name, botsSpawned, seconds));
     }
 
-    private static void spawnFMEntranceBotsBatch(int m1Count, int m2Count, int m5Count) {
+    private static void spawnFMEntranceBotsBatch(int slotBase, int m1Count, int m2Count, int m5Count) {
         if (m1Count > 0) {
-            List<Integer> bots = spawnBotsOnMapOnPlatform(m1Count, FM_ENTRANCE, "m1");
+            List<Integer> bots = spawnBotsOnMapOnPlatform(group(slotBase, 0), m1Count, FM_ENTRANCE, "m1");
             setAndStartBots(bots, BotTypeManager.BotType.FM_BOT);
         }
         if (m2Count > 0) {
-            List<Integer> bots = spawnBotsOnMapOnPlatform(m2Count, FM_ENTRANCE, "m2");
+            List<Integer> bots = spawnBotsOnMapOnPlatform(group(slotBase, 1), m2Count, FM_ENTRANCE, "m2");
             setAndStartBots(bots, BotTypeManager.BotType.FM_BOT);
         }
         if (m5Count > 0) {
-            List<Integer> bots = spawnBotsOnMapOnPlatform(m5Count, FM_ENTRANCE, "m5");
+            List<Integer> bots = spawnBotsOnMapOnPlatform(group(slotBase, 2), m5Count, FM_ENTRANCE, "m5");
             setAndStartBots(bots, BotTypeManager.BotType.FM_BOT);
         }
     }
 
-    private static void spawnMerchBotsBatch(String platform, int selling, int buying, int nx) {
+    private static void spawnMerchBotsBatch(int slotBase, String platform, int selling, int buying, int nx) {
         if (selling > 0) {
-            List<Integer> bots = spawnBotsOnMapOnPlatform(selling, FM_ENTRANCE, platform);
+            List<Integer> bots = spawnBotsOnMapOnPlatform(group(slotBase, 0), selling, FM_ENTRANCE, platform);
             setAndStartBots(bots, BotTypeManager.BotType.SELLING_MERCHANT_BOT);
         }
         if (buying > 0) {
-            List<Integer> bots = spawnBotsOnMapOnPlatform(buying, FM_ENTRANCE, platform);
+            List<Integer> bots = spawnBotsOnMapOnPlatform(group(slotBase, 1), buying, FM_ENTRANCE, platform);
             setAndStartBots(bots, BotTypeManager.BotType.BUYING_MERCHANT_BOT);
         }
         if (nx > 0) {
-            List<Integer> bots = spawnBotsOnMapOnPlatform(nx, FM_ENTRANCE, platform);
+            List<Integer> bots = spawnBotsOnMapOnPlatform(group(slotBase, 2), nx, FM_ENTRANCE, platform);
             setAndStartBots(bots, BotTypeManager.BotType.NX_MERCHANT_BOT);
         }
     }
 
-    private static void spawnHenesysBotsBatch(int mainCount, int marketCount, int parkCount, int socialCount) {
+    private static void spawnHenesysBotsBatch(int slotBase, int mainCount, int marketCount, int parkCount, int socialCount) {
         if (mainCount > 0) {
-            List<Integer> bots = spawnBotsOnMapOnPlatform(mainCount, HENESYS, "m1");
+            List<Integer> bots = spawnBotsOnMapOnPlatform(group(slotBase, 0), mainCount, HENESYS, "m1");
             setAndStartBots(bots, BotTypeManager.BotType.HENESYS_BOT);
         }
         if (marketCount > 0) {
-            List<Integer> bots = spawnBotsOnMapOnPlatform(marketCount, HENESYS_MARKET, "m1");
+            List<Integer> bots = spawnBotsOnMapOnPlatform(group(slotBase, 1), marketCount, HENESYS_MARKET, "m1");
             setAndStartBots(bots, BotTypeManager.BotType.HENESYS_BOT);
         }
         if (parkCount > 0) {
-            List<Integer> bots = spawnBotsOnMapOnPlatform(parkCount, HENESYS_PARK, "m1");
+            List<Integer> bots = spawnBotsOnMapOnPlatform(group(slotBase, 2), parkCount, HENESYS_PARK, "m1");
             setAndStartBots(bots, BotTypeManager.BotType.HENESYS_BOT);
         }
         if (socialCount > 0) {
             int perSpot = Math.max(1, socialCount / 3);
-            List<Integer> s1 = spawnBotsOnMapOnPlatform(perSpot, HENESYS, "m4_social");
-            List<Integer> s2 = spawnBotsOnMapOnPlatform(perSpot, HENESYS, "m5_social");
-            List<Integer> s3 = spawnBotsOnMapOnPlatform(perSpot, HENESYS, "m6_social");
+            List<Integer> s1 = spawnBotsOnMapOnPlatform(group(slotBase, 3), perSpot, HENESYS, "m4_social");
+            List<Integer> s2 = spawnBotsOnMapOnPlatform(group(slotBase, 4), perSpot, HENESYS, "m5_social");
+            List<Integer> s3 = spawnBotsOnMapOnPlatform(group(slotBase, 5), perSpot, HENESYS, "m6_social");
         }
+    }
+
+    /** The slot base of one cohort inside a wave task's slots. */
+    private static int group(int slotBase, int index) {
+        return slotBase + index * BotStore.SLOTS_PER_GROUP;
     }
 
     public static void spawnCasinoNpcs() {
@@ -412,13 +471,13 @@ public class EnvironmentManager {
      */
     public static void spawnBotsInFMEntrance() {
         int fm_entrance = 910000000;
-        List<Integer> bots1 = spawnBotsOnMapOnPlatform(15, fm_entrance, "m1"); // Bottom row
+        List<Integer> bots1 = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(15), 15, fm_entrance, "m1"); // Bottom row
         debugprint("bots1", bots1);
         setAndStartBots(bots1, BotTypeManager.BotType.FM_BOT);
-        List<Integer> bots3 = spawnBotsOnMapOnPlatform(15, fm_entrance, "m5"); // Left side
+        List<Integer> bots3 = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(15), 15, fm_entrance, "m5"); // Left side
         debugprint("bots3", bots3);
         setAndStartBots(bots3, BotTypeManager.BotType.FM_BOT);
-        List<Integer> bots2 = spawnBotsOnMapOnPlatform(15, fm_entrance, "m2"); // Second row
+        List<Integer> bots2 = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(15), 15, fm_entrance, "m2"); // Second row
         debugprint("bots2", bots2);
         setAndStartBots(bots2, BotTypeManager.BotType.FM_BOT);
     }
@@ -427,50 +486,55 @@ public class EnvironmentManager {
         int fm_entrance = 910000000;
 
         // m1 - Bottom row: 7 selling, 7 buying, 1 nx
-        List<Integer> m1Selling = spawnBotsOnMapOnPlatform(7, fm_entrance, "m1");
+        List<Integer> m1Selling = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(7), 7, fm_entrance, "m1");
         setAndStartBots(m1Selling, BotTypeManager.BotType.SELLING_MERCHANT_BOT);
-        List<Integer> m1Buying = spawnBotsOnMapOnPlatform(7, fm_entrance, "m1");
+        List<Integer> m1Buying = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(7), 7, fm_entrance, "m1");
         setAndStartBots(m1Buying, BotTypeManager.BotType.BUYING_MERCHANT_BOT);
-        List<Integer> m1NX = spawnBotsOnMapOnPlatform(1, fm_entrance, "m1");
+        List<Integer> m1NX = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(1), 1, fm_entrance, "m1");
         setAndStartBots(m1NX, BotTypeManager.BotType.NX_MERCHANT_BOT);
 
         // m5 - Left side: 7 selling, 7 buying, 2 nx
-        List<Integer> m5Selling = spawnBotsOnMapOnPlatform(7, fm_entrance, "m5");
+        List<Integer> m5Selling = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(7), 7, fm_entrance, "m5");
         setAndStartBots(m5Selling, BotTypeManager.BotType.SELLING_MERCHANT_BOT);
-        List<Integer> m5Buying = spawnBotsOnMapOnPlatform(7, fm_entrance, "m5");
+        List<Integer> m5Buying = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(7), 7, fm_entrance, "m5");
         setAndStartBots(m5Buying, BotTypeManager.BotType.BUYING_MERCHANT_BOT);
-        List<Integer> m5NX = spawnBotsOnMapOnPlatform(2, fm_entrance, "m5");
+        List<Integer> m5NX = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(2), 2, fm_entrance, "m5");
         setAndStartBots(m5NX, BotTypeManager.BotType.NX_MERCHANT_BOT);
 
         // m2 - Second row: 6 selling, 6 buying, 2 nx
-        List<Integer> m2Selling = spawnBotsOnMapOnPlatform(6, fm_entrance, "m2");
+        List<Integer> m2Selling = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(6), 6, fm_entrance, "m2");
         setAndStartBots(m2Selling, BotTypeManager.BotType.SELLING_MERCHANT_BOT);
-        List<Integer> m2Buying = spawnBotsOnMapOnPlatform(6, fm_entrance, "m2");
+        List<Integer> m2Buying = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(6), 6, fm_entrance, "m2");
         setAndStartBots(m2Buying, BotTypeManager.BotType.BUYING_MERCHANT_BOT);
-        List<Integer> m2NX = spawnBotsOnMapOnPlatform(2, fm_entrance, "m2");
+        List<Integer> m2NX = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(2), 2, fm_entrance, "m2");
         setAndStartBots(m2NX, BotTypeManager.BotType.NX_MERCHANT_BOT);
     }
 
     public static void spawnHenesysBots() {
         int henesys_map = 100000000;
-        List<Integer> bots1 = spawnBotsOnMapOnPlatform(30, henesys_map, "m1");
+        List<Integer> bots1 = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(30), 30, henesys_map, "m1");
         setAndStartBots(bots1, BotTypeManager.BotType.HENESYS_BOT);
 
-        List<Integer> bots2 = spawnBotsOnMapOnPlatform(10, 100000100, "m1");
-        List<Integer> bots3 = spawnBotsOnMapOnPlatform(10, 100000100, "m2");
+        List<Integer> bots2 = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(10), 10, 100000100, "m1");
+        List<Integer> bots3 = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(10), 10, 100000100, "m2");
         setAndStartBots(bots2, BotTypeManager.BotType.HENESYS_BOT); // hene market
         setAndStartBots(bots3, BotTypeManager.BotType.HENESYS_BOT);
 
-        List<Integer> bots4 = spawnBotsOnMapOnPlatform(10, 100000200, "m1");
+        List<Integer> bots4 = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(10), 10, 100000200, "m1");
         setAndStartBots(bots4, BotTypeManager.BotType.HENESYS_BOT); // hene park
 
-        List<Integer> bots5 = spawnBotsOnMapOnPlatform(3, henesys_map, "m4_social"); // nana fairy area
-        List<Integer> bots6 = spawnBotsOnMapOnPlatform(3, henesys_map, "m5_social");
-        List<Integer> bots7 = spawnBotsOnMapOnPlatform(3, henesys_map, "m6_social");
+        List<Integer> bots5 = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(3), 3, henesys_map, "m4_social"); // nana fairy area
+        List<Integer> bots6 = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(3), 3, henesys_map, "m5_social");
+        List<Integer> bots7 = spawnBotsOnMapOnPlatform(BotStore.nextDynamicSlots(3), 3, henesys_map, "m6_social");
     }
 
+    /** Spawns the gacha bots by hand: reserves the cohort's on-demand slots. */
     public static void spawnGachaBotsHenesys() {
-        List<Integer> bots2 = spawnBotsOnMapOnPlatformInRadius(3, 100000100, "m1",  new Point(366,154), 250);
+        spawnGachaBotsHenesys(BotStore.nextDynamicSlots(3));
+    }
+
+    private static void spawnGachaBotsHenesys(int slotBase) {
+        List<Integer> bots2 = spawnBotsOnMapOnPlatformInRadius(slotBase, 3, 100000100, "m1", new Point(366, 154), 250);
         setAndStartBots(bots2, BotTypeManager.BotType.GACHA_BOT); // hene market
     }
 
@@ -478,97 +542,139 @@ public class EnvironmentManager {
         return Math.max(1, base + random.nextInt(3) - 1); // -1, 0, or +1
     }
 
+    /** A hand-run cohort spawn: its bots have no plan position, so they draw on-demand slots. */
+    private static int reserveDynamicGroups(int groups) {
+        return BotStore.nextDynamicSlots(Math.max(1, groups) * BotStore.SLOTS_PER_GROUP);
+    }
+
+    /*
+     * GM entry points for the cohorts the boot plan also spawns. They run outside the plan, so they take
+     * a block of on-demand slots - wide enough for every group the call below uses, because a cohort that
+     * overflows its group would land on the next group's slots.
+     */
     public static void spawnFillerBotsHenesys() {
+        spawnFillerBotsHenesys(reserveDynamicGroups(HENESYS_FILLER_GROUPS));
+    }
+
+    public static void spawnFillerBotsHenesysMarket() {
+        spawnFillerBotsHenesysMarket(reserveDynamicGroups(HENESYS_MARKET_FILLER_GROUPS));
+    }
+
+    public static void spawnFillerBotsHenesysPark() {
+        spawnFillerBotsHenesysPark(reserveDynamicGroups(HENESYS_PARK_FILLER_GROUPS));
+    }
+
+    public static void spawnFillerBotsGameZone() {
+        spawnFillerBotsGameZone(reserveDynamicGroups(3));
+    }
+
+    public static void spawnFillerBotsPotionShop() {
+        spawnFillerBotsPotionShop(reserveDynamicGroups(3));
+    }
+
+    public static void spawnGameZoneHostBots() {
+        spawnGameZoneHostBots(BotStore.nextDynamicSlots(2));
+    }
+
+    public static void spawnBlackjackTables() {
+        spawnBlackjackTables(reserveDynamicGroups(5));
+    }
+
+    public static void spawnOPQBotsInLobby() {
+        spawnOPQBotsInLobby(reserveDynamicGroups(getMainPlatformIds(OPQ_LOBBY).size()));
+    }
+
+    private static void spawnFillerBotsHenesys(int slotBase) {
         int map = HENESYS;
         debugprint("Spawning filler bots in Henesys...");
 
         List<Integer> allIds = new ArrayList<>();
-        allIds.addAll(spawnFillerBots(randomizeCount(5), map, new Point(-696, 274), new Point(-10, 274)));       // left side
-        allIds.addAll(spawnFillerBots(randomizeCount(2), map, new Point(-144, 218), new Point(36, 218)));         // left side taxi barrels
-        allIds.addAll(spawnFillerBots(randomizeCount(3), map, new Point(-286, 101), new Point(7, 94)));           // left side top plat
-        allIds.addAll(spawnFillerBots(randomizeCount(3), map, new Point(248, 274), new Point(573, 274)));         // left tree under
-        allIds.addAll(spawnFillerBots(randomizeCount(6), map, new Point(2596, 334), new Point(3347, 334)));       // near market portal
-        allIds.addAll(spawnFillerBots(randomizeCount(6), map, new Point(3393, 124), new Point(4247, 124)));       // near park portal
-        allIds.addAll(spawnFillerBots(randomizeCount(4), map, new Point(3831, 454), new Point(4382, 454)));       // under park portal
-        allIds.addAll(spawnFillerBots(randomizeCount(8), map, new Point(4832, 454), new Point(5762, 454)));       // near maya house
-        allIds.addAll(spawnFillerBots(randomizeCount(4), map, new Point(5547, -176), new Point(6232, -176)));     // near sleepy portal
-        allIds.addAll(spawnFillerBots(randomizeCount(3), map, new Point(4732, -116), new Point(5424, -116)));     // near sleepy portal 2
+        allIds.addAll(spawnFillerBots(group(slotBase, 0), randomizeCount(5), map, new Point(-696, 274), new Point(-10, 274)));       // left side
+        allIds.addAll(spawnFillerBots(group(slotBase, 1), randomizeCount(2), map, new Point(-144, 218), new Point(36, 218)));         // left side taxi barrels
+        allIds.addAll(spawnFillerBots(group(slotBase, 2), randomizeCount(3), map, new Point(-286, 101), new Point(7, 94)));           // left side top plat
+        allIds.addAll(spawnFillerBots(group(slotBase, 3), randomizeCount(3), map, new Point(248, 274), new Point(573, 274)));         // left tree under
+        allIds.addAll(spawnFillerBots(group(slotBase, 4), randomizeCount(6), map, new Point(2596, 334), new Point(3347, 334)));       // near market portal
+        allIds.addAll(spawnFillerBots(group(slotBase, 5), randomizeCount(6), map, new Point(3393, 124), new Point(4247, 124)));       // near park portal
+        allIds.addAll(spawnFillerBots(group(slotBase, 6), randomizeCount(4), map, new Point(3831, 454), new Point(4382, 454)));       // under park portal
+        allIds.addAll(spawnFillerBots(group(slotBase, 7), randomizeCount(8), map, new Point(4832, 454), new Point(5762, 454)));       // near maya house
+        allIds.addAll(spawnFillerBots(group(slotBase, 8), randomizeCount(4), map, new Point(5547, -176), new Point(6232, -176)));     // near sleepy portal
+        allIds.addAll(spawnFillerBots(group(slotBase, 9), randomizeCount(3), map, new Point(4732, -116), new Point(5424, -116)));     // near sleepy portal 2
 
         setAndStartBots(allIds, BotTypeManager.BotType.SOCIAL_BOT);
         debugprint("Henesys filler bots complete.");
     }
 
-    public static void spawnFillerBotsHenesysMarket() {
+    private static void spawnFillerBotsHenesysMarket(int slotBase) {
         int map = HENESYS_MARKET;
         debugprint("Spawning filler bots in Henesys Market...");
 
         List<Integer> allIds = new ArrayList<>();
-        allIds.addAll(spawnFillerBots(randomizeCount(4), map, new Point(-548, 154), new Point(568, 154)));        // left side
-        allIds.addAll(spawnFillerBots(randomizeCount(3), map, new Point(592, 154), new Point(1148, 154)));        // left side 2
-        allIds.addAll(spawnFillerBots(randomizeCount(3), map, new Point(-105, 154), new Point(568, 154)));        // left side 3
-        allIds.addAll(spawnFillerBots(randomizeCount(3), map, new Point(1340, 214), new Point(2442, 214)));       // near weapon store
-        allIds.addAll(spawnFillerBots(randomizeCount(3), map, new Point(1369, -56), new Point(2546, -56)));       // above weapon store
-        allIds.addAll(spawnFillerBots(randomizeCount(4), map, new Point(2689, -116), new Point(3636, -116)));     // near potion store
-        allIds.addAll(spawnFillerBots(randomizeCount(5), map, new Point(2744, 94), new Point(3494, 94)));         // below potion store
-        allIds.addAll(spawnFillerBots(randomizeCount(3), map, new Point(3760, 94), new Point(5100, 94)));         // right side
-        allIds.addAll(spawnFillerBots(randomizeCount(3), map, new Point(3852, -176), new Point(4427, -176)));     // top right side
+        allIds.addAll(spawnFillerBots(group(slotBase, 0), randomizeCount(4), map, new Point(-548, 154), new Point(568, 154)));        // left side
+        allIds.addAll(spawnFillerBots(group(slotBase, 1), randomizeCount(3), map, new Point(592, 154), new Point(1148, 154)));        // left side 2
+        allIds.addAll(spawnFillerBots(group(slotBase, 2), randomizeCount(3), map, new Point(-105, 154), new Point(568, 154)));        // left side 3
+        allIds.addAll(spawnFillerBots(group(slotBase, 3), randomizeCount(3), map, new Point(1340, 214), new Point(2442, 214)));       // near weapon store
+        allIds.addAll(spawnFillerBots(group(slotBase, 4), randomizeCount(3), map, new Point(1369, -56), new Point(2546, -56)));       // above weapon store
+        allIds.addAll(spawnFillerBots(group(slotBase, 5), randomizeCount(4), map, new Point(2689, -116), new Point(3636, -116)));     // near potion store
+        allIds.addAll(spawnFillerBots(group(slotBase, 6), randomizeCount(5), map, new Point(2744, 94), new Point(3494, 94)));         // below potion store
+        allIds.addAll(spawnFillerBots(group(slotBase, 7), randomizeCount(3), map, new Point(3760, 94), new Point(5100, 94)));         // right side
+        allIds.addAll(spawnFillerBots(group(slotBase, 8), randomizeCount(3), map, new Point(3852, -176), new Point(4427, -176)));     // top right side
 
         setAndStartBots(allIds, BotTypeManager.BotType.SOCIAL_BOT);
         debugprint("Henesys Market filler bots complete.");
     }
 
-    public static void spawnFillerBotsHenesysPark() {
+    private static void spawnFillerBotsHenesysPark(int slotBase) {
         int map = HENESYS_PARK;
         debugprint("Spawning filler bots in Henesys Park...");
 
         List<Integer> allIds = new ArrayList<>();
-        allIds.addAll(spawnFillerBots(randomizeCount(4), map, new Point(-53, 454), new Point(597, 454)));         // left side
-        allIds.addAll(spawnFillerBots(randomizeCount(4), map, new Point(982, 424), new Point(1288, 424)));        // near storage keeper
-        allIds.addAll(spawnFillerBots(randomizeCount(5), map, new Point(984, 574), new Point(1606, 574)));        // HPQ bottom
-        allIds.addAll(spawnFillerBots(randomizeCount(2), map, new Point(1563, 304), new Point(1769, 304)));       // JQ platform
-        allIds.addAll(spawnFillerBots(randomizeCount(4), map, new Point(1915, 574), new Point(2909, 574)));       // fountain bottom
-        allIds.addAll(spawnFillerBots(randomizeCount(1), map, new Point(2019, 364), new Point(2118, 364)));       // fountain left tomb
-        allIds.addAll(spawnFillerBots(randomizeCount(2), map, new Point(2198, 424), new Point(2471, 424)));       // fountain top
-        allIds.addAll(spawnFillerBots(randomizeCount(1), map, new Point(2549, 364), new Point(2663, 364)));       // right tomb
-        allIds.addAll(spawnFillerBots(randomizeCount(2), map, new Point(3233, 334), new Point(3607, 334)));       // right statue TP
-        allIds.addAll(spawnFillerBots(randomizeCount(4), map, new Point(3585, 694), new Point(4390, 694)));       // outside bowman portal
+        allIds.addAll(spawnFillerBots(group(slotBase, 0), randomizeCount(4), map, new Point(-53, 454), new Point(597, 454)));         // left side
+        allIds.addAll(spawnFillerBots(group(slotBase, 1), randomizeCount(4), map, new Point(982, 424), new Point(1288, 424)));        // near storage keeper
+        allIds.addAll(spawnFillerBots(group(slotBase, 2), randomizeCount(5), map, new Point(984, 574), new Point(1606, 574)));        // HPQ bottom
+        allIds.addAll(spawnFillerBots(group(slotBase, 3), randomizeCount(2), map, new Point(1563, 304), new Point(1769, 304)));       // JQ platform
+        allIds.addAll(spawnFillerBots(group(slotBase, 4), randomizeCount(4), map, new Point(1915, 574), new Point(2909, 574)));       // fountain bottom
+        allIds.addAll(spawnFillerBots(group(slotBase, 5), randomizeCount(1), map, new Point(2019, 364), new Point(2118, 364)));       // fountain left tomb
+        allIds.addAll(spawnFillerBots(group(slotBase, 6), randomizeCount(2), map, new Point(2198, 424), new Point(2471, 424)));       // fountain top
+        allIds.addAll(spawnFillerBots(group(slotBase, 7), randomizeCount(1), map, new Point(2549, 364), new Point(2663, 364)));       // right tomb
+        allIds.addAll(spawnFillerBots(group(slotBase, 8), randomizeCount(2), map, new Point(3233, 334), new Point(3607, 334)));       // right statue TP
+        allIds.addAll(spawnFillerBots(group(slotBase, 9), randomizeCount(4), map, new Point(3585, 694), new Point(4390, 694)));       // outside bowman portal
 
         setAndStartBots(allIds, BotTypeManager.BotType.SOCIAL_BOT);
         debugprint("Henesys Park filler bots complete.");
     }
 
-    public static void spawnFillerBotsGameZone() {
+    private static void spawnFillerBotsGameZone(int slotBase) {
         int map = HENESYS_GAME_ZONE;
         debugprint("Spawning filler bots in Henesys Game Zone...");
 
         List<Integer> allIds = new ArrayList<>();
 //        allIds.addAll(spawnFillerBots(randomizeCount(4), map, new Point(-830, 274), new Point(-62, 274)));        // left side // interferes with table 1
-        allIds.addAll(spawnFillerBots(randomizeCount(4), map, new Point(1027, 394), new Point(1483, 394)));       // right side lower
-        allIds.addAll(spawnFillerBots(randomizeCount(6), map, new Point(-83, 274), new Point(340, 274)));         // center
-        allIds.addAll(spawnFillerBots(randomizeCount(3), map, new Point(263, 64), new Point(929, 64)));           // top platform
+        allIds.addAll(spawnFillerBots(group(slotBase, 0), randomizeCount(4), map, new Point(1027, 394), new Point(1483, 394)));       // right side lower
+        allIds.addAll(spawnFillerBots(group(slotBase, 1), randomizeCount(6), map, new Point(-83, 274), new Point(340, 274)));         // center
+        allIds.addAll(spawnFillerBots(group(slotBase, 2), randomizeCount(3), map, new Point(263, 64), new Point(929, 64)));           // top platform
 
         setAndStartBots(allIds, BotTypeManager.BotType.SOCIAL_BOT);
         debugprint("Henesys Game Zone filler bots complete.");
     }
 
-    public static void spawnFillerBotsPotionShop() {
+    private static void spawnFillerBotsPotionShop(int slotBase) {
         int map = HENESYS_POTION_SHOP;
         debugprint("Spawning filler bots in Henesys Potion Shop...");
 
         List<Integer> allIds = new ArrayList<>();
-        allIds.addAll(spawnFillerBotsLockedY(randomizeCount(3), map, new Point(-370, 182), new Point(175, 182)));   // bottom left
-        allIds.addAll(spawnFillerBotsLockedY(randomizeCount(2), map, new Point(193, 182), new Point(370, 182)));    // bottom right
-        allIds.addAll(spawnFillerBotsLockedY(randomizeCount(3), map, new Point(-112, -127), new Point(245, -127))); // top bar
+        allIds.addAll(spawnFillerBotsLockedY(group(slotBase, 0), randomizeCount(3), map, new Point(-370, 182), new Point(175, 182)));   // bottom left
+        allIds.addAll(spawnFillerBotsLockedY(group(slotBase, 1), randomizeCount(2), map, new Point(193, 182), new Point(370, 182)));    // bottom right
+        allIds.addAll(spawnFillerBotsLockedY(group(slotBase, 2), randomizeCount(3), map, new Point(-112, -127), new Point(245, -127))); // top bar
 
         setAndStartBots(allIds, BotTypeManager.BotType.SOCIAL_BOT);
         debugprint("Henesys Potion Shop filler bots complete.");
     }
 
-    public static void spawnDropGameBotPotionShop() {
+    public static void spawnDropGameBotPotionShop(int slotBase) {
         debugprint("Spawning Drop Game Bot in Henesys Potion Shop...");
         Point spawn = new Point(45, 182);
         ExecutorServiceManager.runAsync(() -> {
-            Character fakechar = createBotWithRetry(spawn, HENESYS_POTION_SHOP, 5);
+            Character fakechar = createBotWithRetry(slotBase, spawn, HENESYS_POTION_SHOP, 5);
             if (fakechar != null) {
                 ExecutorServiceManager.getScheduledExecutorService().schedule(() -> {
                     setAndStartBots(List.of(fakechar.getId()), BotTypeManager.BotType.DROP_GAME_BOT);
@@ -617,11 +723,14 @@ public class EnvironmentManager {
     public static void spawnAttackTestBots(int tierArg) {
         final int tier = (tierArg < 1 || tierArg > 4) ? 1 : tierArg;
         final int level = switch (tier) { case 2 -> 50; case 3 -> 100; case 4 -> 130; default -> 25; };
+        final int slotBase = BotStore.nextDynamicSlots(ATTACK_TEST_SLOTS.size());
 
         debugprint(fmt("Spawning tier-{} attack test bots on Henesys Hunting Ground 1...", tier));
-        for (TierSlot slot : ATTACK_TEST_SLOTS) {
+        for (int i = 0; i < ATTACK_TEST_SLOTS.size(); i++) {
+            TierSlot slot = ATTACK_TEST_SLOTS.get(i);
+            int slotIndex = slotBase + i;
             ExecutorServiceManager.runAsync(() -> {
-                Character bot = createBotWithRetry(slot.pos(), HHG1, 5);
+                Character bot = createBotWithRetry(slotIndex, slot.pos(), HHG1, 5);
                 if (bot == null) {
                     debugprint(fmt("Failed to spawn attack test bot at {}", slot.pos()));
                     return;
@@ -634,7 +743,7 @@ public class EnvironmentManager {
         }
     }
 
-    public static void spawnDropGameSpectatorsPotionShop() {
+    public static void spawnDropGameSpectatorsPotionShop(int slotBase) {
         debugprint("Spawning Drop Game Spectator bots in Henesys Potion Shop...");
         Point[] spots = {
                 new Point(145, 145), new Point(76, 22), new Point(297, -28),
@@ -649,7 +758,7 @@ public class EnvironmentManager {
 
         List<Integer> ids = new ArrayList<>();
         for (int i = 0; i < count && i < available.size(); i++) {
-            Character bot = createBotWithRetry(available.get(i), HENESYS_POTION_SHOP, 3);
+            Character bot = createBotWithRetry(slotBase + i, available.get(i), HENESYS_POTION_SHOP, 3);
             if (bot != null) {
                 ids.add(bot.getId());
             }
@@ -661,10 +770,10 @@ public class EnvironmentManager {
         }
     }
 
-    public static void spawnTutorialBot() {
+    public static void spawnTutorialBot(int slotBase) {
         debugprint("Spawning Tutorial Bot on Maple Island...");
         Point spawn = new Point(158, 485);
-        Character fakechar = createBotWithRetry(spawn, MAPLE_ISLAND_TUTORIAL, 5);
+        Character fakechar = createBotWithRetry(slotBase, spawn, MAPLE_ISLAND_TUTORIAL, 5);
         if (fakechar != null) {
             setAndStartBots(List.of(fakechar.getId()), BotTypeManager.BotType.TUTORIAL_BOT);
             debugprint("Tutorial Bot started on Maple Island.");
@@ -673,39 +782,40 @@ public class EnvironmentManager {
         }
     }
 
-    public static void spawnJQBotsPetPark() {
+    public static void spawnJQBotsPetPark(int slotBase) {
         debugprint("Spawning JQ Bots in Henesys Pet Park...");
-        List<Integer> botIds = spawnBotsOnMapOnPlatform(15, HENESYS_PET_PARK, "m1");
+        List<Integer> botIds = spawnBotsOnMapOnPlatform(slotBase, 15, HENESYS_PET_PARK, "m1");
         setAndStartBots(botIds, BotTypeManager.BotType.HENESYS_JQ_BOT);
         debugprint(fmt("Pet Park JQ bots spawned: {}", botIds.size()));
     }
 
-    public static void spawnSocialBotsPetPark() {
+    public static void spawnSocialBotsPetPark(int slotBase) {
         int map = HENESYS_PET_PARK;
         debugprint("Spawning social bots in Henesys Pet Park...");
 
         List<Integer> allIds = new ArrayList<>();
-        allIds.addAll(spawnFillerBots(1, map, new Point(-194, 34), new Point(184, 34)));
-        allIds.addAll(spawnFillerBots(2, map, new Point(-449, 154), new Point(369, 154)));
-        allIds.addAll(spawnFillerBots(3, map, new Point(618, 154), new Point(1375, 154)));
-        allIds.addAll(spawnFillerBots(1, map, new Point(841, -116), new Point(1125, -116)));
-        allIds.addAll(spawnFillerBots(1, map, new Point(437, -326), new Point(810, -326)));
-        allIds.addAll(spawnFillerBots(1, map, new Point(531, -626), new Point(731, -626)));
-        allIds.addAll(spawnFillerBots(1, map, new Point(790, -506), new Point(993, -506)));
-        allIds.addAll(spawnFillerBots(1, map, new Point(1072, -446), new Point(1274, -446)));
-        allIds.addAll(spawnFillerBots(3, map, new Point(-1808, 274), new Point(-738, 274)));
+        allIds.addAll(spawnFillerBots(group(slotBase, 0), 1, map, new Point(-194, 34), new Point(184, 34)));
+        allIds.addAll(spawnFillerBots(group(slotBase, 1), 2, map, new Point(-449, 154), new Point(369, 154)));
+        allIds.addAll(spawnFillerBots(group(slotBase, 2), 3, map, new Point(618, 154), new Point(1375, 154)));
+        allIds.addAll(spawnFillerBots(group(slotBase, 3), 1, map, new Point(841, -116), new Point(1125, -116)));
+        allIds.addAll(spawnFillerBots(group(slotBase, 4), 1, map, new Point(437, -326), new Point(810, -326)));
+        allIds.addAll(spawnFillerBots(group(slotBase, 5), 1, map, new Point(531, -626), new Point(731, -626)));
+        allIds.addAll(spawnFillerBots(group(slotBase, 6), 1, map, new Point(790, -506), new Point(993, -506)));
+        allIds.addAll(spawnFillerBots(group(slotBase, 7), 1, map, new Point(1072, -446), new Point(1274, -446)));
+        allIds.addAll(spawnFillerBots(group(slotBase, 8), 3, map, new Point(-1808, 274), new Point(-738, 274)));
 
         setAndStartBots(allIds, BotTypeManager.BotType.SOCIAL_BOT);
         debugprint(fmt("Pet Park social bots spawned: {}", allIds.size()));
     }
 
-    public static void spawnGameZoneHostBots() {
+    private static void spawnGameZoneHostBots(int slotBase) {
         debugprint("Spawning Game Zone Host Bots...");
         Point[] spawns = { new Point(503, 250), new Point(716, 254) };
         List<Integer> botIds = new ArrayList<>();
 
-        for (Point spawn : spawns) {
-            Character fakechar = createBotWithRetry(spawn, HENESYS_GAME_ZONE, 5);
+        for (int i = 0; i < spawns.length; i++) {
+            Point spawn = spawns[i];
+            Character fakechar = createBotWithRetry(slotBase + i, spawn, HENESYS_GAME_ZONE, 5);
             if (fakechar != null) {
                 botIds.add(fakechar.getId());
             } else {
@@ -719,27 +829,27 @@ public class EnvironmentManager {
         }
     }
 
-    public static void spawnBlackjackTables() {
+    private static void spawnBlackjackTables(int slotBase) {
         debugprint("Spawning Blackjack Tables in Game Zone...");
 
         // Table 1
-        spawnBlackjackTable(
+        spawnBlackjackTable(group(slotBase, 0),
                 new Point(-947, 64), new Point(-169, 64),
                 new Point(-920, 274), new Point(-169, 274));
         // Table 2
-        spawnBlackjackTable(
+        spawnBlackjackTable(group(slotBase, 1),
                 new Point(-939, -296), new Point(-152, -296),
                 new Point(-937, -116), new Point(-149, -116));
         // Table 3
-        spawnBlackjackTable(
+        spawnBlackjackTable(group(slotBase, 2),
                 new Point(226, -296), new Point(937, -296),
                 new Point(227, -116), new Point(940, -116));
         // Table 4
-        spawnBlackjackTable(
+        spawnBlackjackTable(group(slotBase, 3),
                 new Point(-927, -656), new Point(-130, -656),
                 new Point(-956, -476), new Point(-151, -476));
         // Table 5
-        spawnBlackjackTable(
+        spawnBlackjackTable(group(slotBase, 4),
                 new Point(229, -656), new Point(924, -656),
                 new Point(220, -476), new Point(943, -476));
 
@@ -771,12 +881,12 @@ public class EnvironmentManager {
         return random.nextInt(125) - 50;
     }
 
-    private static void spawnBlackjackTable(Point topP1, Point topP2, Point botP1, Point botP2) {
+    private static void spawnBlackjackTable(int slotBase, Point topP1, Point topP2, Point botP1, Point botP2) {
         Point[] seats = calculateTablePositions(topP1, topP2, botP1, botP2);
         int playerCount = 2 + random.nextInt(4); // 2-5 players
 
         // Spawn dealer bot at seat[0]
-        Character dealerChar = createBotWithRetry(seats[0], HENESYS_GAME_ZONE, 5);
+        Character dealerChar = createBotWithRetry(slotBase, seats[0], HENESYS_GAME_ZONE, 5);
         if (dealerChar == null) {
             debugprint("Failed to spawn Blackjack dealer bot");
             return;
@@ -791,7 +901,7 @@ public class EnvironmentManager {
 
         for (int i = 0; i < playerCount; i++) {
             int seatIdx = playerSeatIndices.get(i);
-            Character playerChar = createBotWithRetry(seats[seatIdx], HENESYS_GAME_ZONE, 5);
+            Character playerChar = createBotWithRetry(slotBase + 1 + i, seats[seatIdx], HENESYS_GAME_ZONE, 5);
             if (playerChar != null) {
                 playerChars.add(playerChar);
             }
@@ -854,7 +964,7 @@ public class EnvironmentManager {
         setAndStartBots(selected, BotTypeManager.BotType.SCROLL_BOT);
     }
 
-    public static void spawnOPQBotsInLobby() {
+    private static void spawnOPQBotsInLobby(int slotBase) {
         int totalBots = 10 + random.nextInt(6); // 10-15
         List<String> platforms = getMainPlatformIds(OPQ_LOBBY);
 
@@ -872,12 +982,20 @@ public class EnvironmentManager {
         for (int i = 0; i < platforms.size(); i++) {
             int count = perPlatform + (i < remainder ? 1 : 0);
             if (count <= 0) continue;
-            List<Integer> ids = spawnBotsOnMapOnPlatform(count, OPQ_LOBBY, platforms.get(i));
+            List<Integer> ids = spawnBotsOnMapOnPlatform(group(slotBase, i), count, OPQ_LOBBY, platforms.get(i));
             allBotIds.addAll(ids);
         }
 
         if (!allBotIds.isEmpty()) {
-            setBotsLevelRange(allBotIds, 50, 70);
+            // Only bots minted this boot get the lobby's 50-70 band: an adopted lobby bot keeps the level
+            // (and everything else) the store gave it, so a restart cannot undo its progression.
+            List<Integer> minted = new ArrayList<>();
+            for (int botId : allBotIds) {
+                if (!BotStore.isAdoptedInThisRun(botId)) {
+                    minted.add(botId);
+                }
+            }
+            setBotsLevelRange(minted, 50, 70);
             setAndStartBots(allBotIds, BotTypeManager.BotType.OPQ_BOT);
             debugprint(fmt("OPQ lobby bots spawned and started: {}", allBotIds.size()));
         }

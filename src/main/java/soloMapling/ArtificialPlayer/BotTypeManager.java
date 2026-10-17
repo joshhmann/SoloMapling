@@ -228,10 +228,11 @@ public class BotTypeManager {
 
     // Deliberate stagger on the GM command thread (dev tool, not bot FSM code).
     public static void massCreateBots(Integer start, Integer end, Client c) {
+        int slotBase = BotStore.nextDynamicSlots(Math.max(1, end - start));
         for (int x = start; x < end; x++) {
             MapleMap map = getMapleMapById(c.getPlayer().getMapId());
             Point pos = c.getPlayer().getPosition();
-            BotGeneration.createBot(pos, map);
+            BotGeneration.createBot(slotBase + x - start, pos, map);
             BotHelpers.blockingSleep(50);
         }
     }
@@ -240,7 +241,8 @@ public class BotTypeManager {
 //        MapleMap map = c.getPlayer().getMap();
         MapleMap map = Server.getInstance().getChannel(0, 1).getMapFactory().getMap(c.getPlayer().getMapId());
         Point pos = c.getPlayer().getPosition();
-        runAsync(() -> BotGeneration.createBot(pos, map));
+        int slot = BotStore.nextDynamicSlot();
+        runAsync(() -> BotGeneration.createBot(slot, pos, map));
     }
 
     public static void massFMBots(Integer start, Integer end) {

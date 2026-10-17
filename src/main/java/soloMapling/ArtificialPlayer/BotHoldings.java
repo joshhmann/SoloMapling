@@ -19,13 +19,15 @@ import java.util.WeakHashMap;
 /**
  * The accounting path for everything a bot owns.
  * <p>
- * Bots are real {@link Character}s, but their inventories are loaded in memory and never written back to the
- * DB, and the single shared bot {@code Client} has no player attached to it. Every
+ * Bots are real {@link Character}s, but the single shared bot {@code Client} has no player attached to it. Every
  * {@code InventoryManipulator} entry point starts from {@code client.getPlayer()} and therefore cannot credit
  * a bot, so anything a bot gains or gives away goes through here with its {@link Character} passed explicitly.
  * <p>
  * Every change is recorded in a per-bot ledger of what this path added (itemId to quantity, plus a meso
- * delta), which is what {@link #settle(Character)} hands back to the world when a bot leaves the server.
+ * delta). The ledger is the fallback for value that would otherwise be destroyed: {@link #settle(Character)}
+ * drops it where the bot stands, which is what a bot's holdings do when the bot cannot be persisted
+ * ({@link BotStore#saveThenSettle}), while {@link #discard(Character)} forgets it once the bot's state is
+ * durable and the value must not be handed out a second time.
  */
 public final class BotHoldings {
 
@@ -207,6 +209,14 @@ public final class BotHoldings {
         bot.gainMeso(-amount, false, false, false);
         ledger(bot).addMeso(-amount);
         return true;
+    }
+
+    /**
+     * Forgets a bot's deltas without dropping anything: the value they stand for is already durable, so a
+     * later settle must not hand the same value to the world a second time.
+     */
+    public static void discard(Character bot) {
+        ledgers.remove(bot);
     }
 
     /**

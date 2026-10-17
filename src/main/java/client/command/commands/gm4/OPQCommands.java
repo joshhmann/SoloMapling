@@ -6,6 +6,7 @@ import client.command.Command;
 import net.server.Server;
 import server.maps.MapleMap;
 import soloMapling.ArtificialPlayer.BotGeneration;
+import soloMapling.ArtificialPlayer.BotStore;
 import soloMapling.ArtificialPlayer.BotHelpers;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
 import soloMapling.ArtificialPlayer.BotSM;
@@ -323,9 +324,10 @@ public class OPQCommands extends Command {
         Character self = c.getPlayer();
         int mapId = self.getMapId();
         int spawned = 0;
+        int slotBase = BotStore.nextDynamicSlots(Math.max(1, n));
         for (int i = 0; i < n; i++) {
             try {
-                Character fakechar = BotGeneration.createBotPollReadiness(self.getPosition(), mapId);
+                Character fakechar = BotGeneration.createBotPollReadiness(slotBase + i, self.getPosition(), mapId);
                 if (fakechar == null) continue;
                 OPQBot bot = new OPQBot(fakechar);
                 CharacterStorage.addActiveBot(fakechar.getId(), bot);
