@@ -3,6 +3,8 @@ package soloMapling.ArtificialPlayer.BotTradeSystem;
 import client.Character;
 import client.inventory.Equip;
 import client.inventory.Item;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import server.Trade;
 import tools.PacketCreator;
 
@@ -23,6 +25,8 @@ import static soloMapling.DebugUtilities.debugprint;
  * and are debited through Trade.setMeso when offered and refunded by Trade.cancel.
  */
 public class BotTradeCommands {
+
+    private static final Logger log = LoggerFactory.getLogger(BotTradeCommands.class);
 
     private static boolean isValidTrade(Character fakechar) {
         return fakechar.getTrade() != null;
@@ -280,6 +284,35 @@ public class BotTradeCommands {
 
     public static void cancelTrade(Character fakechar) {
         Trade.declineTrade(fakechar);
+    }
+
+    /**
+     * Closes a bot's trade window before it starts a trip. A bot must never travel out of an open trade:
+     * the movement driver freezes a bot that is inside a trade, so the trip would stall until the soft-lock
+     * / hop-ceiling warp and the window would die implicitly, with no bot-side trace. This uses the same
+     * cancel path as {@code BotStore.closeOpenWindow}: PARTNER_CANCEL refunds both sides' window value
+     * (offered mesos back to the wallet, the partner's real items back to the partner) before movement
+     * starts. The trip itself is not refused; the caller still starts it and still fires its callback.
+     * <p>
+     * {@link Trade#cancelTrade} re-reads the bot's trade, so a window already closed by a concurrent
+     * decline/cancel is a harmless no-op rather than an error.
+     *
+     * @return true when an open window was cancelled, false when there was none
+     */
+    public static boolean abortOpenTradeForTravel(Character fakechar) {
+        if (fakechar == null || !isValidTrade(fakechar)) {
+            return false;
+        }
+        try {
+            Trade.cancelTrade(fakechar, Trade.TradeResult.PARTNER_CANCEL);
+        } catch (Exception e) {
+            // A failure here must not stop the caller from starting the trip: the travel callback is
+            // contractually fired by the trip, so the window is reported unclosed and movement goes on.
+            log.warn("Could not close the trade window of bot {} before travel", fakechar.getId(), e);
+            return false;
+        }
+        log.info("Bot {} closed an open trade window to start travel", fakechar.getId());
+        return true;
     }
 
     public static Trade getTradePartner(Character fakechar) {

@@ -7,6 +7,7 @@ import server.maps.MapleMap;
 import soloMapling.ArtificialPlayer.BotAttackSystem.BotBuffDriver;
 import soloMapling.ArtificialPlayer.BotBuffRequestSystem.BotBuffRequestHandler;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
+import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 import soloMapling.server.SoloMaplingUtilities;
 
 import java.awt.*;
@@ -212,6 +213,21 @@ public class BotGeneration {
     }
 
     public static void removeBotFromServer(Character fakechar) {
+        // A bot's lifecycle commitments end here, in this one place, so every caller leaves the same clean
+        // slate behind whether or not it stopped the bot's FSM first (/dchere does not).
+        //
+        // An open trade window goes first: it holds items and mesos out of both wallets, so a save taken
+        // before the cancel would write the bot out without the refund and destroy that value (the same
+        // ordering BotStore.settleAndSaveAll uses).
+        BotStore.closeOpenWindow(fakechar);
+        // Dynamic control owns a per-bot driver, its travel/follow/fidget pollers and the shared movement
+        // lock. Left enabled, a departed bot's trip would keep polling a character that is in no map, and
+        // the lock would stay held. disable is null-safe and idempotent.
+        GCMovement.disable(fakechar);
+        // Spot claims are lifecycle state kept across LOD demotion/promotion, so only a map change or this
+        // despawn ends them; releasing by bot id catches every (map, spot) it held.
+        BotSpotClaims.releaseAllFor(fakechar.getId());
+
         // Ticket 06: a bot's holdings now go into the store with it, so leaving the world costs it nothing.
         // If the store cannot be written the bot is settled onto the map instead - while the map is still
         // available - so what it accumulated is never silently destroyed.

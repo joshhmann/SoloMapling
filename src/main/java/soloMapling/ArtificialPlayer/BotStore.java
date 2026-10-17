@@ -343,6 +343,9 @@ public final class BotStore {
             log.warn("Could not load the holdings of bot {}: {} - this bot will not write its inventory",
                     bot.getId(), e.getMessage());
         }
+        // Level, job and worn gear all came off the row, so the clone's stats are stale until this point
+        // (ticket 07 rule 2: stored progression must be internally consistent, not just visible).
+        bot.refreshStatsAfterProgression();
         return true;
     }
 

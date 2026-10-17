@@ -63,6 +63,26 @@ public final class BotSpotClaims {
         }
     }
 
+    // End every claim a bot holds, on every (mapId, spotId) it claimed. A claim is lifecycle state, owned
+    // by a bot id and kept across LOD demotion/promotion; only a map change or a despawn ends it. Despawn
+    // runs through here for every caller, whatever path the bot took out of the world, so a departed bot
+    // can never keep squatting a slot a live bot needs. Returns how many claims were released.
+    public static synchronized int releaseAllFor(int botId) {
+        int released = 0;
+        for (Map<Integer, Map<Integer, Integer>> bySpot : CLAIMS.values()) {
+            for (Map<Integer, Integer> slots : bySpot.values()) {
+                if (slots.remove(botId) != null) {
+                    released++;
+                }
+            }
+            // Drop the spots (and below, the maps) this left empty: the registry is a census of live
+            // holders, and a bot that despawned must not leave it growing one dead entry at a time.
+            bySpot.values().removeIf(s -> s.isEmpty());
+        }
+        CLAIMS.values().removeIf(m -> m.isEmpty());
+        return released;
+    }
+
     public static synchronized int holders(int mapId, int spotId) {
         Map<Integer, Map<Integer, Integer>> bySpot = CLAIMS.get(mapId);
         if (bySpot == null) {

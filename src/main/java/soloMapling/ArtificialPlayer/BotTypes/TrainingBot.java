@@ -2,7 +2,6 @@ package soloMapling.ArtificialPlayer.BotTypes;
 
 import client.Character;
 import client.inventory.Item;
-import constants.game.ExpTable;
 import constants.id.MapId;
 import net.server.Server;
 import net.server.world.Party;
@@ -1191,6 +1190,8 @@ public class TrainingBot extends BotSM {
     }
 
     // Silent, level-scaled accrual: kills/min x per-kill-exp, where per-kill-exp ~ the map's mob level.
+    // Applied through the character's own offscreen path so it serializes with observed gains and
+    // re-derives stats; nothing is sent to the map (ticket 07 rule 2).
     private void accrueAbstractExp(int mobLevel, double elapsedSec) {
         int perKillExp = Math.max(1, mobLevel);
         int gain = (int) Math.round((KILLS_PER_MIN / 60.0) * perKillExp * elapsedSec);
@@ -1198,20 +1199,7 @@ public class TrainingBot extends BotSM {
             return;
         }
         Character chr = getChr();
-        long exp = (long) chr.getExp() + gain;
-        int level = chr.getLevel();
-        int startLevel = level;
-        while (level < LEVEL_CAP) {
-            int need = ExpTable.getExpNeededForLevel(level);
-            if (need <= 0 || exp < need) {
-                break;
-            }
-            exp -= need;
-            level++;
-        }
-        chr.setLevel(level);
-        chr.setExp((int) Math.min(exp, Integer.MAX_VALUE));
-        if (level > startLevel) {
+        if (chr.applyOffscreenExp(gain, LEVEL_CAP) > 0) {
             // Announce the bot's own level-up so nearby bots can congratulate it (same event path as
             // real players). Once, at the final level. The abstract EXP loop can span several levels
             // when the bot ticks slowly while unobserved - we still fire a single event.

@@ -38,7 +38,12 @@ public class BotHelpers {
         return isArtificial(id) || isConsole(id);
     }
 
-    private static boolean isArtificial(int id) {
+    /**
+     * An artificial player (a spawned bot), by character id: every id above the bot id base. Excludes the
+     * console pseudo-character (999), which is the reason callers that mean "a bot, not the console" use
+     * this instead of {@link #isBot(int)}.
+     */
+    public static boolean isArtificial(int id) {
         return id > 20000;
     }
 

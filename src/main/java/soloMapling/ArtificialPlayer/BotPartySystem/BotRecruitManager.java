@@ -7,15 +7,17 @@ import soloMapling.ArtificialPlayer.BotSM;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static soloMapling.DebugUtilities.debugprint;
 import static soloMapling.server.SoloMaplingUtilities.random;
 
 // Shared recruit brain for the dialogue-driven party flow (SocialBot / TrainingBot / FollowerBot).
 // Owns the RNG accept/decline roll, the per-(bot,player) decline cooldown, the armed-invite window
-// ("I said yes - now only THAT player's invite gets accepted, briefly"), the global follower cap,
-// and the small handoff maps that carry intent across convertBotType's Character-only factory
-// (pending leader for a fresh FollowerBot, station-here for a fresh TrainingBot).
+// ("I said yes - now only THAT player's invite gets accepted, briefly"), the global follower cap
+// (reserved at accept time, not just checked at ask time - see tryReserveFollower), and the small
+// handoff maps that carry intent across convertBotType's Character-only factory (pending leader for
+// a fresh FollowerBot, station-here for a fresh TrainingBot).
 // OPQ's unconditional accept path (BotPartyLogic.checkPartyQueue) is deliberately untouched.
 public class BotRecruitManager {
 
@@ -35,7 +37,7 @@ public class BotRecruitManager {
 
     public enum InvitePoll { NONE, JOINED, REJECTED }
 
-    private record Armed(int inviterId, long expiresAtMs) {
+    private record Armed(int inviterId, long expiresAtMs, boolean convertsToFollower) {
     }
 
     private static final Map<Integer, Armed> ARMED = new ConcurrentHashMap<>();          // bot char id
@@ -43,8 +45,17 @@ public class BotRecruitManager {
     private static final Map<Integer, Integer> PENDING_LEADER = new ConcurrentHashMap<>(); // bot id -> leader id
     private static final Set<Integer> PENDING_STATION = ConcurrentHashMap.newKeySet();   // bot ids
 
+    // Follower slots taken by an accept that has not converted yet. The live scan alone under-counts
+    // exactly that window (accepted on one tick, converted on the next), so without this N bots that
+    // all passed the ask-time cap check would accept concurrently and blow past FOLLOWER_CAP.
+    // The id set makes a reservation idempotent per bot and keeps one release from freeing two slots.
+    private static final AtomicInteger RESERVED_FOLLOWERS = new AtomicInteger();
+    private static final Set<Integer> RESERVED_FOLLOWER_IDS = ConcurrentHashMap.newKeySet();
+
     // The dialogue option was picked: roll accept/decline. On accept the invite window is armed;
-    // on decline the (bot,player) pair goes on cooldown. willBecomeFollower gates the global cap.
+    // on decline the (bot,player) pair goes on cooldown. willBecomeFollower gates the global cap AND
+    // marks the window as one whose accept must take a follower reservation (only SocialBot converts
+    // the bot on JOINED; a TrainingBot's accept leaves it grinding, so it must reserve nothing).
     public static RecruitAnswer rollPartyAsk(Character botChr, Character player, double acceptChance,
                                              boolean willBecomeFollower) {
         if (botChr.getLevel() < 10) {
@@ -64,7 +75,8 @@ public class BotRecruitManager {
             return RecruitAnswer.FOLLOWERS_FULL;
         }
         if (random.nextDouble() < acceptChance) {
-            ARMED.put(botChr.getId(), new Armed(player.getId(), System.currentTimeMillis() + INVITE_WINDOW_MS));
+            ARMED.put(botChr.getId(), new Armed(player.getId(),
+                    System.currentTimeMillis() + INVITE_WINDOW_MS, willBecomeFollower));
             debugprint("rollPartyAsk: " + botChr.getName() + " ACCEPTED " + player.getName()
                     + " (invite window " + (INVITE_WINDOW_MS / 1000) + "s)");
             return RecruitAnswer.ACCEPTED;
@@ -95,12 +107,26 @@ public class BotRecruitManager {
         boolean armedMatch = armed != null && inviter != null
                 && inviter.getId() == armed.inviterId();
         if (armedMatch) {
+            // Capacity is reserved BEFORE the join for an accept that converts to a follower. Order
+            // matters: (1) reserve, (2) accept the invite, (3) the caller converts and releases. Taking
+            // the slot after the join would leave the join-then-convert gap uncounted, and taking it any
+            // later than the first line would let a full world accept one follower too many. If the
+            // reservation is refused the accept fails closed - the bot politely rejects rather than
+            // joining a party it is not allowed to turn into a follower.
+            if (armed.convertsToFollower() && !tryReserveFollower(botChr.getId())) {
+                debugprint("pollInvites: " + botChr.getName() + " rejected - follower cap reached ("
+                        + FOLLOWER_CAP + ", " + reservedFollowerCount() + " accepts in flight)");
+                BotPartyCommands.botRejectPartyInvite(botChr);
+                return InvitePoll.REJECTED;
+            }
             boolean joined = BotPartyCommands.botAcceptPartyInvite(botChr);
             if (joined) {
                 ARMED.remove(botChr.getId());
-                return InvitePoll.JOINED;
+                return InvitePoll.JOINED; // the reservation rides along until the conversion lands
             }
-            return InvitePoll.NONE; // coordinator-side expiry; queue already cleared by the accept call
+            // Coordinator-side expiry: the party join never happened, so neither will the conversion.
+            releaseFollowerReservation(botChr.getId());
+            return InvitePoll.NONE; // queue already cleared by the accept call
         }
         BotPartyCommands.botRejectPartyInvite(botChr);
         return InvitePoll.REJECTED;
@@ -161,8 +187,16 @@ public class BotRecruitManager {
         ARMED.remove(botCharId);
     }
 
-    // Live scan by type string (no BotTypes import, no counter to keep in sync across conversions).
+    // Live scan by type string (no BotTypes import, no counter to keep in sync across conversions),
+    // PLUS the accepts still in flight. Both parts are needed: the scan is the ground truth for bots
+    // that already are followers, and the reservations cover the tick between accepting the invite and
+    // the FollowerBot actually existing, so ask-time checks stop over-promising capacity.
     public static int activeFollowerCount() {
+        return liveFollowerCount() + reservedFollowerCount();
+    }
+
+    // Followers as they exist right now, ignoring anything still in flight.
+    private static int liveFollowerCount() {
         int n = 0;
         for (BotSM bot : CharacterStorage.getAllBots().values()) {
             if ("FollowerBot".equals(bot.getBotType())) {
@@ -170,6 +204,43 @@ public class BotRecruitManager {
             }
         }
         return n;
+    }
+
+    // ── Follower capacity reservations ──
+
+    // Atomically claim one follower slot for this bot, or fail if the world is already at FOLLOWER_CAP
+    // once this reservation is counted. The claim is a compare-and-set loop against the live scan: the
+    // scan can only be read, never incremented, so the counter is the variable every concurrent accept
+    // actually contends on - at one free slot, exactly one of two racing accepts wins and the loser
+    // gives its claim back before returning false. Idempotent per bot: a bot that already holds its
+    // slot gets true without taking a second one (a double-take would leak capacity on a single
+    // release). Callers MUST release once the bot is a follower or provably never will be.
+    public static boolean tryReserveFollower(int botCharId) {
+        if (!RESERVED_FOLLOWER_IDS.add(botCharId)) {
+            return true; // this bot's slot is already held
+        }
+        while (true) {
+            int held = RESERVED_FOLLOWERS.get();
+            if (liveFollowerCount() + held >= FOLLOWER_CAP) {
+                RESERVED_FOLLOWER_IDS.remove(botCharId);
+                return false;
+            }
+            if (RESERVED_FOLLOWERS.compareAndSet(held, held + 1)) {
+                return true;
+            }
+        }
+    }
+
+    // Hand the slot back. Safe to call for a bot that holds none (the set removes nothing, so the
+    // counter never moves), which is what makes the caller's "release whatever happens" path simple.
+    public static void releaseFollowerReservation(int botCharId) {
+        if (RESERVED_FOLLOWER_IDS.remove(botCharId)) {
+            RESERVED_FOLLOWERS.decrementAndGet();
+        }
+    }
+
+    public static int reservedFollowerCount() {
+        return RESERVED_FOLLOWERS.get();
     }
 
     private static long pairKey(int botId, int playerId) {

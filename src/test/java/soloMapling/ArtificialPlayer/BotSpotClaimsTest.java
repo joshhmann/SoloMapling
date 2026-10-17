@@ -2,13 +2,75 @@ package soloMapling.ArtificialPlayer;
 
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.util.Map;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 // Pure-registry tests for the claim/slot/section math the grind system leans on to spread bots
 // across spots (and, past the cap, to level sharers instead of stacking them). The registry is
 // global static state, so every test uses its own map id.
 class BotSpotClaimsTest {
+
+    private static final Field CLAIMS_FIELD = claimsField();
+
+    private static Field claimsField() {
+        try {
+            Field field = BotSpotClaims.class.getDeclaredField("CLAIMS");
+            field.setAccessible(true);
+            return field;
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** Whether the registry still has an entry for a map at all (not just "no holders"): internals, by design. */
+    private static boolean mapEntryExists(int mapId) throws Exception {
+        return ((Map<?, ?>) CLAIMS_FIELD.get(null)).containsKey(mapId);
+    }
+
+    @Test
+    void releaseAllForFreesABotEverywhereAndLeavesOtherHoldersAlone() throws Exception {
+        int mapA = 990_010;
+        int mapB = 990_011;
+        assertEquals(0, BotSpotClaims.claim(mapA, 0, 4, 31));
+        assertEquals(0, BotSpotClaims.claim(mapB, 7, 4, 31)); // same bot, another spot: slots are per spot
+        assertEquals(1, BotSpotClaims.claim(mapB, 7, 4, 32)); // a different bot takes the spot's free slot
+
+        // despawn: every claim of the departed bot goes at once, whichever map it was on
+        assertEquals(2, BotSpotClaims.releaseAllFor(31));
+
+        assertEquals(0, BotSpotClaims.holders(mapA, 0));
+        assertEquals(1, BotSpotClaims.holders(mapB, 7));
+        // the map it was the only holder on is pruned, not left as an empty shell the registry keeps
+        assertFalse(mapEntryExists(mapA));
+        assertTrue(mapEntryExists(mapB));
+        // the freed slot is handed to the next bot (slot 0 of mapA is free again)
+        assertEquals(0, BotSpotClaims.claim(mapA, 0, 4, 33));
+        assertEquals(0, BotSpotClaims.claim(mapB, 7, 4, 34)); // ...and the slot 31 freed on mapB too
+        // a second release for the same bot (removeBotFromServer can be reached twice) is a no-op
+        assertEquals(0, BotSpotClaims.releaseAllFor(31));
+
+        BotSpotClaims.release(mapA, 0, 33);
+        BotSpotClaims.release(mapB, 7, 32);
+        BotSpotClaims.release(mapB, 7, 34);
+    }
+
+    @Test
+    void releaseAllForAnUnknownBotReleasesNothing() throws Exception {
+        int map = 990_012;
+        assertEquals(0, BotSpotClaims.claim(map, 2, 2, 41));
+
+        assertEquals(0, BotSpotClaims.releaseAllFor(999_999));
+
+        assertEquals(1, BotSpotClaims.holders(map, 2));
+        assertTrue(mapEntryExists(map)); // the registry was left exactly as it was
+        assertEquals(1, BotSpotClaims.claim(map, 2, 2, 42)); // slot 0 still taken by 41
+        BotSpotClaims.release(map, 2, 41);
+        BotSpotClaims.release(map, 2, 42);
+    }
 
     @Test
     void capacityIsEnforcedAndSquatBypassesIt() {

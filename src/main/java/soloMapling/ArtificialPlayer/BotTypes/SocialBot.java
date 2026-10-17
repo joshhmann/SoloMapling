@@ -447,13 +447,21 @@ public class SocialBot extends BotSM {
         if (res != BotRecruitManager.InvitePoll.JOINED) {
             return;
         }
-        Character recruiter = chr.getClient().getChannelServer().getPlayerStorage().getCharacterById(recruiterId);
-        String line = getRandomLine("PartyJoined", recruiter);
-        if (line != null) {
-            BotSpeak(chr, line);
+        // pollInvites took a follower reservation for this accept. Release it the moment the conversion
+        // is done with - success (the live scan counts the new FollowerBot), a refused conversion
+        // (mid-trade) or a throw all leave the world without an extra follower, and a slot held by a
+        // bot that never became one would starve the cap forever.
+        try {
+            Character recruiter = chr.getClient().getChannelServer().getPlayerStorage().getCharacterById(recruiterId);
+            String line = getRandomLine("PartyJoined", recruiter);
+            if (line != null) {
+                BotSpeak(chr, line);
+            }
+            BotRecruitManager.setPendingLeader(chr.getId(), recruiterId);
+            BotTypeManager.convertBotType(chr, BotTypeManager.BotType.FOLLOWER_BOT);
+        } finally {
+            BotRecruitManager.releaseFollowerReservation(chr.getId());
         }
-        BotRecruitManager.setPendingLeader(chr.getId(), recruiterId);
-        BotTypeManager.convertBotType(chr, BotTypeManager.BotType.FOLLOWER_BOT);
     }
 
     // --- Response types ---

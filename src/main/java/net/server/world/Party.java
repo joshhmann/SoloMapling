@@ -57,6 +57,12 @@ public class Party {
 
     private final Lock lock = new ReentrantLock(true);
 
+    // Hard cap on a party. The callers' size checks (invite time, accept time) are only hints: they
+    // read the member list outside this party's lock, so two accepts landing at the same instant both
+    // see 5 members. This is the one place the cap is actually enforced - together with the insert, so
+    // a party can never grow past it.
+    public static final int MAX_MEMBERS = 6;
+
     public Party(int id, PartyCharacter chrfor) {
         this.leaderId = chrfor.getId();
         this.id = id;
@@ -71,13 +77,20 @@ public class Party {
         }
     }
 
-    public void addMember(PartyCharacter member) {
+    // Takes a member slot. Returns false when the party is already at MAX_MEMBERS and mutates nothing -
+    // the caller (World's JOIN handling) must then not register or announce the member. Two concurrent
+    // accepts racing for the last free slot are serialized here, so exactly one of them wins.
+    public boolean addMember(PartyCharacter member) {
         lock.lock();
         try {
+            if (members.size() >= MAX_MEMBERS) {
+                return false;
+            }
             histMembers.put(member.getId(), nextEntry);
             nextEntry++;
 
             members.add(member);
+            return true;
         } finally {
             lock.unlock();
         }
@@ -358,11 +371,21 @@ public class Party {
         if (party == null) {
             party = world.getParty(partyid);
             if (party != null) {
-                if (party.getMembers().size() < 6) {
+                if (party.getMembers().size() < MAX_MEMBERS) {
                     PartyCharacter partyplayer = new PartyCharacter(player);
-                    player.getMap().addPartyMember(player, party.getId());
 
-                    world.updateParty(party.getId(), PartyOperation.JOIN, partyplayer);
+                    // The size check above is advice only - the JOIN takes the slot under the party
+                    // lock, so if someone else got the last one first we bail out with the very same
+                    // "party is full" the pre-check would have given. Nothing is announced or added
+                    // for a refused join, and the map is only told about a member that really joined.
+                    if (!world.updateParty(party.getId(), PartyOperation.JOIN, partyplayer)) {
+                        if (!silentCheck) {
+                            player.sendPacket(PacketCreator.partyStatusMessage(17));
+                        }
+                        return false;
+                    }
+
+                    player.getMap().addPartyMember(player, party.getId());
                     player.receivePartyMemberHP();
                     player.updatePartyMemberHP();
 
