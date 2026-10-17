@@ -324,6 +324,8 @@ public class PlayerShop extends AbstractMapObject {
                             c.getPlayer().gainMeso(-price, false);
                             price -= Trade.getFee(price);  // thanks BHB for pointing out trade fees not applying here
                             owner.gainMeso(price, true);
+                            // A bot can own this shop (FreeMarket stalls); its take must be holdings, not ambient income.
+                            BotHoldings.noteMesoEarned(owner, price);
 
                             SoldItem soldItem = new SoldItem(c.getPlayer().getName(), pItem.getItem().getItemId(), quantity, price);
                             owner.sendPacket(PacketCreator.getPlayerShopOwnerUpdate(soldItem, item));
@@ -733,6 +735,8 @@ public class PlayerShop extends AbstractMapObject {
 
                 price -= Trade.getFee(price);  // thanks BHB for pointing out trade fees not applying here
                 owner.gainMeso(price, true);
+                // The owner can be a bot here too (a bot stall bought from by another bot); ledger its take.
+                BotHoldings.noteMesoEarned(owner, price);
 
                 SoldItem soldItem = new SoldItem(fakechar.getName(), pItem.getItem().getItemId(), quantity, price);
                 owner.sendPacket(PacketCreator.getPlayerShopOwnerUpdate(soldItem, itemPosition));

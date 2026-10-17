@@ -198,6 +198,22 @@ public final class BotHoldings {
         }
     }
 
+    /**
+     * Notes mesos that reached the wallet for a bot-owned sale: a bot that owns a {@code PlayerShop} is paid by
+     * {@code owner.gainMeso} inside {@code PlayerShop.buy} and {@code PlayerShop.botBuy}, which credit the owner
+     * directly because for a player that wallet is already durable. Recording it keeps the ledger equal to what
+     * the bot really holds, so {@link #settle(Character)} hands the sale proceeds back to the world instead of
+     * losing them - and the player-side credit path stays exactly what it was.
+     *
+     * <p>No-op for a real player: the shops these call sites sit in are owned by players too, and their wallet
+     * needs no ledger.
+     */
+    public static void noteMesoEarned(Character character, int amount) {
+        if (amount > 0 && BotHelpers.isBot(character)) {
+            ledger(character).addMeso(amount);
+        }
+    }
+
     /** Debits meso from the bot; false when it cannot afford the amount, leaving its mesos untouched. */
     public static boolean spendMeso(Character bot, int amount) {
         if (amount < 0) {
