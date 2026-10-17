@@ -3,6 +3,7 @@ package soloMapling.ArtificialPlayer.BotMessagingSystem;
 import client.Character;
 import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotTypes.SocialBot;
+import soloMapling.server.BotShutdown;
 
 import java.util.Collection;
 import java.util.concurrent.*;
@@ -36,6 +37,9 @@ public class Dispatcher implements Runnable {
     @Override
     public void run() {
 //        log("Dispatcher: RUN");
+        if (BotShutdown.isQuiesced()) {
+            return; // Ticket 09: delivery touches maps and bot commands - a quiesced server drops the pass
+        }
         processMessages();
     }
 

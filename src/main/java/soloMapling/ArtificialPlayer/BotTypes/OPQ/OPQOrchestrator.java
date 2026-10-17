@@ -4,6 +4,7 @@ import client.Character;
 import server.maps.MapleMap;
 import server.maps.Reactor;
 import soloMapling.ArtificialPlayer.BotTypes.OPQ.OPQSharedContext.OPQPhase;
+import soloMapling.server.BotShutdown;
 import soloMapling.server.ExecutorServiceManager;
 
 import java.awt.Point;
@@ -331,6 +332,10 @@ public class OPQOrchestrator {
     }
 
     private void safeTick() {
+        if (BotShutdown.isQuiesced()) {
+            stopTick(); // Ticket 09: the run is over - cancel this instance's loop at the next tick
+            return;
+        }
         try {
             tick();
         } catch (Exception e) {

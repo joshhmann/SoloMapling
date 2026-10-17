@@ -7,6 +7,7 @@ import net.server.Server;
 import server.maps.HiredMerchant;
 import server.maps.PlayerShop;
 import server.maps.PlayerShopItem;
+import soloMapling.server.BotShutdown;
 import soloMapling.server.ExecutorServiceManager;
 import tools.PacketCreator;
 
@@ -490,6 +491,9 @@ public class ArtificialFreeMarket {
             // so wait it out before opening the store - a shop popping open while
             // the bot is still mid-drop looks broken.
             getScheduledExecutorService().schedule(() -> runAsync(() -> {
+                if (BotShutdown.isQuiesced()) {
+                    return; // Ticket 09: an FM stall must not open (or sit) while the world is going down
+                }
                 BotPlayerStorePermit(fakechar2);
 
                 if (Math.random() < 0.5) {

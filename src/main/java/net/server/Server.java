@@ -74,6 +74,8 @@ import service.NoteService;
 import soloMapling.ArtificialPlayer.BotClientHandler;
 import soloMapling.ArtificialPlayer.BotStore;
 import soloMapling.Environment.EnvironmentManager;
+import soloMapling.server.BotShutdown;
+import soloMapling.server.BotTickService;
 import soloMapling.server.MethodScheduler;
 import tools.DatabaseConnection;
 import tools.Pair;
@@ -1939,6 +1941,13 @@ public class Server {
         if (getWorlds() == null) {
             return;//already shutdown
         }
+
+        // Ticket 09: bot activity is not part of the player disconnect path either, and nothing below stops
+        // it. Quiesce it and drain what is already in flight BEFORE the settlement sweep and before the
+        // worlds dispose their maps, so the sweep records a population nothing is mutating and no bot task
+        // (wheel, combat ticker, scanner, movement tick) runs against a map whose footholds are already gone.
+        BotShutdown.begin();
+        BotTickService.stop();
 
         // Ticket 06: bots are not part of the player disconnect path below - they never log in, and the one
         // Client they share has no player attached to it - so their state is settled and written here,

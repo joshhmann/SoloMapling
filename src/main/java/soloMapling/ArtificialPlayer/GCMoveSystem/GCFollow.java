@@ -1,6 +1,7 @@
 package soloMapling.ArtificialPlayer.GCMoveSystem;
 
 import client.Character;
+import soloMapling.server.BotShutdown;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -78,6 +79,10 @@ final class GCFollow {
     }
 
     private static void tick(Session s) {
+        if (BotShutdown.isQuiesced()) {
+            cancel(s.bot); // Ticket 09: a follower must not travel after the gate has closed
+            return;
+        }
         Character bot = s.bot;
         Character target = s.target;
         if (bot == null || bot.getMap() == null || target == null || target.getMap() == null) {

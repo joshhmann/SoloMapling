@@ -6,6 +6,7 @@ import net.server.world.World;
 import server.maps.MapleMap;
 import server.maps.Portal;
 import soloMapling.ArtificialPlayer.BotHelpers;
+import soloMapling.server.BotShutdown;
 
 import java.awt.Point;
 import java.util.ArrayList;
@@ -61,6 +62,8 @@ final class ObserverTracker {
     private static final TierDwell DWELL = new TierDwell(DWELL_MS);
 
     private static final AtomicBoolean STARTED = new AtomicBoolean(false);
+    // Ticket 09: the poll's own pool, kept so shutdown can cancel it.
+    private static volatile ScheduledExecutorService pollPool;
 
     // Transient promotion override: when a bot ENTERS a map that already has a real player, we mark
     // that map observed immediately so FULL behaviour (visible spawn, broadcast, combat) starts the
@@ -100,6 +103,9 @@ final class ObserverTracker {
 
     /* Start the poll once (idempotent). Called from GCMovement.enable(Character). */
     static void ensureStarted() {
+        if (BotShutdown.isQuiesced()) {
+            return; // Ticket 09: no observer poll into a shutdown
+        }
         if (!STARTED.compareAndSet(false, true)) {
             return;
         }
@@ -108,7 +114,17 @@ final class ObserverTracker {
             t.setDaemon(true);
             return t;
         });
+        pollPool = pool;
         pool.scheduleAtFixedRate(ObserverTracker::safeRefresh, 0, POLL_MS, TimeUnit.MILLISECONDS);
+        BotShutdown.onQuiesce(ObserverTracker::stopPoll);
+    }
+
+    /* Ticket 09: cancel the observer poll. The pool is ours, so shutting it down cancels the task. */
+    private static void stopPoll() {
+        ScheduledExecutorService pool = pollPool;
+        if (pool != null) {
+            pool.shutdownNow();
+        }
     }
 
     /* Whether the observer poll is running (started by the first GCMovement.enable). */
@@ -158,6 +174,9 @@ final class ObserverTracker {
     }
 
     private static void safeRefresh() {
+        if (BotShutdown.isQuiesced()) {
+            return; // Ticket 09: keep the last-known sets and stop walking worlds that are going away
+        }
         try {
             refresh();
         } catch (Throwable ignored) {

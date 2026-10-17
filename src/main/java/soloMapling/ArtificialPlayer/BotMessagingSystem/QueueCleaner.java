@@ -3,6 +3,7 @@ package soloMapling.ArtificialPlayer.BotMessagingSystem;
 import java.util.Collection;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import soloMapling.server.BotShutdown;
 
 import static soloMapling.BotLogger.log;
 import static soloMapling.server.ExecutorServiceManager.getScheduledExecutorService;
@@ -29,6 +30,9 @@ public class QueueCleaner implements Runnable {
 
     @Override
     public void run() {
+        if (BotShutdown.isQuiesced()) {
+            return; // Ticket 09: queue hygiene is not needed while the process is going down
+        }
         long currentTime = System.currentTimeMillis();
         cleanQueue("primary", currentTime);
         cleanQueue("secondary", currentTime);

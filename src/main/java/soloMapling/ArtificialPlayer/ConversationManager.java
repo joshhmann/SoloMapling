@@ -8,6 +8,7 @@ import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
 import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotTownSystem.TownPresenceConfig;
 import soloMapling.ArtificialPlayer.BotTypes.SocialBot;
+import soloMapling.server.BotShutdown;
 import soloMapling.server.ExecutorServiceManager;
 
 import java.awt.*;
@@ -133,6 +134,9 @@ public class ConversationManager {
     }
 
     private void tick() {
+        if (BotShutdown.isQuiesced()) {
+            return; // Ticket 09: no cluster scan or playback once the gate has closed
+        }
         if (allScripts == null || allScripts.isEmpty()) return;
 
         Set<Integer> mapsWithRealPlayers = getMapsWithRealPlayers();

@@ -6,6 +6,7 @@ import server.maps.Portal;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeCommands;
 import soloMapling.ArtificialPlayer.BotTravelSystem.BotScriptedWarp;
 import soloMapling.BotLogger;
+import soloMapling.server.BotShutdown;
 
 import java.awt.Point;
 import java.util.List;
@@ -149,6 +150,10 @@ final class GCTravel {
     }
 
     private static void tick(Trip trip) {
+        if (BotShutdown.isQuiesced()) {
+            cancel(trip.bot); // Ticket 09: no hop, no warp and no callback once the gate has closed
+            return;
+        }
         Character bot = trip.bot;
         if (bot == null || bot.getMap() == null) {
             finish(trip, false);

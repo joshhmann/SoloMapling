@@ -33,6 +33,7 @@ import soloMapling.ArtificialPlayer.BotWanderSystem.BotWanderSystem;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 import soloMapling.server.EventMessageSystem.EventBus;
 import soloMapling.server.EventMessageSystem.EventFactory;
+import soloMapling.server.BotShutdown;
 import soloMapling.server.ExecutorServiceManager;
 
 import java.awt.Point;
@@ -46,6 +47,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -170,18 +172,32 @@ public class TrainingBot extends BotSM {
     // ── Shared combat ticker (one task for ALL training bots) ────────────────
     private static final Set<TrainingBot> ACTIVE_GRINDERS = ConcurrentHashMap.newKeySet();
     private static volatile boolean combatTickerStarted = false;
+    // Ticket 09: the shared ticker's future, kept so shutdown can cancel it (one task for all grinders).
+    private static volatile ScheduledFuture<?> combatTicker;
 
     private static synchronized void ensureCombatTicker() {
-        if (combatTickerStarted) {
+        if (combatTickerStarted || BotShutdown.isQuiesced()) {
             return;
         }
         combatTickerStarted = true;
-        ExecutorServiceManager.getScheduledExecutorService().scheduleAtFixedRate(
+        combatTicker = ExecutorServiceManager.getScheduledExecutorService().scheduleAtFixedRate(
                 TrainingBot::combatTickAll, COMBAT_TICK_MS, COMBAT_TICK_MS, TimeUnit.MILLISECONDS);
+        BotShutdown.onQuiesce(TrainingBot::stopCombatTicker);
+    }
+
+    /* Ticket 09: cancel the shared ticker. Combat is presentation - nothing needs draining for it. */
+    private static void stopCombatTicker() {
+        ScheduledFuture<?> ticker = combatTicker;
+        if (ticker != null) {
+            ticker.cancel(false);
+        }
     }
 
     // Swing every grinding bot whose map a real player can see. One exception per bot never stops the ticker.
     private static void combatTickAll() {
+        if (BotShutdown.isQuiesced()) {
+            return; // Ticket 09: no combat sweep across maps that are being disposed
+        }
         long sweepStart = System.currentTimeMillis();
         for (TrainingBot bot : ACTIVE_GRINDERS) {
             try {
@@ -532,14 +548,20 @@ public class TrainingBot extends BotSM {
         }
         AtomicBoolean entered = new AtomicBoolean(false);
         Runnable enter = () -> {
-            if (!saunaTripActive || !entered.compareAndSet(false, true)) {
+            // Ticket 09: quiescence ends the trip - a bot must not change map or start a wander on the way out.
+            if (!saunaTripActive || BotShutdown.isQuiesced() || !entered.compareAndSet(false, true)) {
                 return; // already entered (door-arrival vs cap race), or the trip was aborted
             }
             int sauna = rng.nextDouble() < SAUNA_VIP_CHANCE ? SAUNA_VIP : SAUNA_REGULAR;
             chr.changeMap(sauna);
             BotWanderSystem.start(chr); // relax in the sauna for a beat
             ExecutorServiceManager.getScheduledExecutorService().schedule(
-                    () -> leaveSauna(chr), shopDwellMs(), TimeUnit.MILLISECONDS);
+                    () -> {
+                        if (BotShutdown.isQuiesced()) {
+                            return; // Ticket 09: no travel out of the sauna once the gate has closed
+                        }
+                        leaveSauna(chr);
+                    }, shopDwellMs(), TimeUnit.MILLISECONDS);
         };
         GCMovement.move(chr, SAUNA_DOOR_X, SAUNA_DOOR_Y, enter);
         ExecutorServiceManager.getScheduledExecutorService().schedule(enter, DOOR_WALK_MAX_MS, TimeUnit.MILLISECONDS);

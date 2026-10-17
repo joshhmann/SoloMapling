@@ -11,6 +11,7 @@ import server.TimerManager;
 import soloMapling.ArtificialPlayer.BotHelpers;
 import soloMapling.ArtificialPlayer.BotHoldings;
 import soloMapling.ArtificialPlayer.BotLogic;
+import soloMapling.server.BotShutdown;
 import tools.PacketCreator;
 
 import java.awt.*;
@@ -65,13 +66,16 @@ public class DropCommands {
                 fakechar.getPosition(), true, true);
         if (drop != null && expiryMs > 0) {
             TimerManager.getInstance().schedule(() -> {
-                if (drop.isPickedUp()) return;
+                if (BotShutdown.isQuiesced() || drop.isPickedUp()) return;
                 fakechar.getMap().broadcastMessage(
                         PacketCreator.removeItemFromMap(drop.getObjectId(), 0, 0),
                         drop.getPosition());
             }, expiryMs);
 
             TimerManager.getInstance().schedule(() -> {
+                if (BotShutdown.isQuiesced()) {
+                    return; // Ticket 09: the map may already be disposed - the drop goes with it
+                }
                 fakechar.getMap().makeDisappearItemFromMap(drop);
             }, expiryMs + PICKUP_GRACE_PERIOD_MS);
         }

@@ -53,7 +53,12 @@ public final class BotTiming {
     // One delayed action. Timer on the shared scheduled pool, body on a virtual thread.
     public static void after(long delayMs, Runnable action) {
         ExecutorServiceManager.getScheduledExecutorService().schedule(
-                () -> ExecutorServiceManager.runAsync(() -> safely(action)),
+                () -> ExecutorServiceManager.runAsync(() -> {
+                    if (BotShutdown.isQuiesced()) {
+                        return; // Ticket 09: a delayed bot side-effect is dropped once the gate has closed
+                    }
+                    safely(action);
+                }),
                 Math.max(0, delayMs), TimeUnit.MILLISECONDS);
     }
 
@@ -103,6 +108,9 @@ public final class BotTiming {
             BooleanSupplier gate = keepGoing;
             ExecutorServiceManager.runAsync(() -> {
                 for (Runnable step : script) {
+                    if (BotShutdown.isQuiesced()) {
+                        return; // Ticket 09: quiescence ends an in-flight choreography
+                    }
                     if (gate != null && !gate.getAsBoolean()) {
                         return;
                     }

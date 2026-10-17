@@ -1,6 +1,7 @@
 package soloMapling.ArtificialPlayer.GCMoveSystem;
 
 import client.Character;
+import soloMapling.server.BotShutdown;
 
 import java.awt.Point;
 import java.util.Map;
@@ -82,6 +83,10 @@ final class GCFidget {
     }
 
     private static void tick(Session s) {
+        if (BotShutdown.isQuiesced()) {
+            cancel(s.bot); // Ticket 09: no fidget against a map that is being disposed
+            return;
+        }
         Character bot = s.bot;
         if (bot == null || bot.getMap() == null || !GCMovement.isEnabled(bot)) {
             cancel(bot);

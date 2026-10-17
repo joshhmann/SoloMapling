@@ -8,6 +8,7 @@ import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands;
 import soloMapling.ArtificialPlayer.BotTownSystem.TownPresenceConfig;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
+import soloMapling.server.BotShutdown;
 import soloMapling.server.ExecutorServiceManager;
 import soloMapling.server.MethodScheduler;
 
@@ -158,6 +159,9 @@ public class SocialHotPotatoManager {
     }
 
     private void megaTick() {
+        if (BotShutdown.isQuiesced()) {
+            return; // Ticket 09: no server-wide megaphone while the server is going down
+        }
         // Megaphones are server-wide (heard by every online player regardless of the sender's map), so the
         // pool is unfiltered by observation - draw a sender from any eligible bot in scope.
         Character bot = selectRandomFillerBot(false);
@@ -166,6 +170,9 @@ public class SocialHotPotatoManager {
     }
 
     private void tick() {
+        if (BotShutdown.isQuiesced()) {
+            return; // Ticket 09: no bark, chair or nudge once the gate has closed
+        }
         // Barks are local chat/emote/chair packets, so gate on observation: only pick from maps a real
         // player is on. Unobserved towns emit no barks (gate packets on observation).
         Character bot = selectRandomFillerBot(true);

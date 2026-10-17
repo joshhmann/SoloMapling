@@ -16,6 +16,9 @@ public class MethodScheduler {
     public static void runAfterDelay(Runnable method, long delayMilliseconds) {
         ExecutorServiceManager.getScheduledExecutorService().schedule(
                 () -> ExecutorServiceManager.runAsync(() -> {
+                    if (BotShutdown.isQuiesced()) {
+                        return; // Ticket 09: delayed bot/player side-effects are dropped while shutting down
+                    }
                     try {
                         method.run();
                     } catch (Exception e) {

@@ -2,6 +2,7 @@ package soloMapling.ArtificialPlayer.GCMoveSystem;
 
 import client.Character;
 import server.maps.MapleMap;
+import soloMapling.server.BotShutdown;
 
 import java.awt.Point;
 import java.awt.Rectangle;
@@ -93,8 +94,8 @@ final class GCMovementDriver {
      * though the physical pool thread may differ.
      */
     private static void scheduleNext(BotMovementState entry, long delayMs) {
-        if (entry.tickStopped) {
-            return;
+        if (entry.tickStopped || BotShutdown.isQuiesced()) {
+            return; // Ticket 09: no new movement tick once the gate has closed
         }
         entry.task = POOL.schedule(() -> {
             safeTick(entry);
@@ -130,6 +131,10 @@ final class GCMovementDriver {
     }
 
     private static void safeTick(BotMovementState entry) {
+        if (BotShutdown.isQuiesced()) {
+            stop(entry); // Ticket 09: end the chain for this bot instead of stepping physics on a dead map
+            return;
+        }
         try {
             soloMapling.server.BotPerfStats.MOVEMENT_TICKS.increment();
             long startedAt = System.nanoTime();

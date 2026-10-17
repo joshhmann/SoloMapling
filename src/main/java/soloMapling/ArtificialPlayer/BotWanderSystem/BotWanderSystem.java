@@ -4,6 +4,7 @@ import client.Character;
 import server.maps.MapleMap;
 import soloMapling.ArtificialPlayer.BotGrindSystem.BotSpotPicker;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
+import soloMapling.server.BotShutdown;
 import soloMapling.server.ExecutorServiceManager;
 
 import java.awt.Point;
@@ -15,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 // General-purpose flavor wander: a live bot strolls to a random legal walking point on its current map,
 // idles a beat, then strolls somewhere else - so bots disperse instead of piling on the spawn portal
@@ -66,6 +68,9 @@ public final class BotWanderSystem {
     private static final ScheduledExecutorService POOL = ExecutorServiceManager.getScheduledExecutorService();
 
     private static final Map<Integer, Wander> WANDERS = new ConcurrentHashMap<>();
+
+    // Ticket 09: register the cancel hook once, the first time a stroll is ever started.
+    private static final AtomicBoolean QUIESCE_HOOK = new AtomicBoolean(false);
 
     private static final byte WALKING = 0;
     private static final byte DWELLING = 1;
@@ -172,9 +177,25 @@ public final class BotWanderSystem {
         return bot != null && WANDERS.containsKey(bot.getId());
     }
 
+    /*
+     * Ticket 09: cancel every live stroll. The poll pool is the shared scheduled pool, so only the
+     * per-bot tasks are ours to cancel - a stopped task cannot pick a spot or issue a move again.
+     */
+    public static void stopAll() {
+        for (Wander w : WANDERS.values()) {
+            if (w.task != null) {
+                w.task.cancel(false);
+            }
+        }
+        WANDERS.clear();
+    }
+
     private static void startInternal(Character bot, boolean banded, int bandLo, int bandHi) {
-        if (bot == null || bot.getMap() == null) {
-            return;
+        if (bot == null || bot.getMap() == null || BotShutdown.isQuiesced()) {
+            return; // Ticket 09: a quiesced server starts no new strolls
+        }
+        if (QUIESCE_HOOK.compareAndSet(false, true)) {
+            BotShutdown.onQuiesce(BotWanderSystem::stopAll);
         }
         stop(bot);
         GCMovement.enable(bot);
@@ -192,6 +213,9 @@ public final class BotWanderSystem {
     }
 
     private static void tick(Wander w) {
+        if (BotShutdown.isQuiesced()) {
+            return; // Ticket 09: an in-flight stroll ends here rather than moving through a disposed map
+        }
         Character bot = w.bot;
         if (bot == null) {
             return;

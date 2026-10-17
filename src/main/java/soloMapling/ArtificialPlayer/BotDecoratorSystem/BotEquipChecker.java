@@ -3,6 +3,7 @@ package soloMapling.ArtificialPlayer.BotDecoratorSystem;
 import client.Character;
 import client.inventory.InventoryType;
 import net.server.Server;
+import soloMapling.server.BotShutdown;
 import soloMapling.server.ExecutorServiceManager;
 
 import java.util.ArrayList;
@@ -23,14 +24,29 @@ public class BotEquipChecker {
     private static final short SLOT_PANTS = -6;
 
     public static void start() {
-        if (task != null) return;
+        if (task != null || BotShutdown.isQuiesced()) {
+            return;
+        }
         task = ExecutorServiceManager.getScheduledExecutorService().scheduleAtFixedRate(
                 BotEquipChecker::check, INTERVAL_MS, INTERVAL_MS, TimeUnit.MILLISECONDS
         );
+        BotShutdown.onQuiesce(BotEquipChecker::stop);
         System.out.println("[BotEquipChecker] Started — interval=" + (INTERVAL_MS / 60000) + "min");
     }
 
+    /** Ticket 09: cancel the sweep - a quiesced server never dresses another bot. */
+    public static void stop() {
+        ScheduledFuture<?> scan = task;
+        task = null;
+        if (scan != null) {
+            scan.cancel(false);
+        }
+    }
+
     private static void check() {
+        if (BotShutdown.isQuiesced()) {
+            return; // Ticket 09: no scan of a channel whose maps are being disposed
+        }
         try {
             long startMs = System.currentTimeMillis();
             List<Character> allChars = new ArrayList<>(

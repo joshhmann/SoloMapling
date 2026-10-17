@@ -2,6 +2,7 @@ package soloMapling.ArtificialPlayer.BotDecoratorSystem;
 
 import client.Character;
 import soloMapling.ArtificialPlayer.BotHelpers;
+import soloMapling.server.BotShutdown;
 
 import java.util.Map;
 import java.util.concurrent.*;
@@ -52,7 +53,7 @@ public class BotDecorationQueue {
      * Call once after environment initialization.
      */
     public static void start() {
-        if (!ENABLED) return;
+        if (!ENABLED || BotShutdown.isQuiesced()) return;
         if (scheduler != null && !scheduler.isShutdown()) return;
 
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -67,6 +68,7 @@ public class BotDecorationQueue {
                 TICK_INTERVAL_MS,
                 TimeUnit.MILLISECONDS
         );
+        BotShutdown.onQuiesce(BotDecorationQueue::stop);
 
         System.out.println("[BotDecorationQueue] Started - interval=" + TICK_INTERVAL_MS + "ms, batch=" + BATCH_SIZE);
     }
@@ -86,6 +88,9 @@ public class BotDecorationQueue {
      * and decorate them in parallel (one async task per category).
      */
     private static void processTick() {
+        if (BotShutdown.isQuiesced()) {
+            return; // Ticket 09: decoration touches maps - a quiesced server drops the pass
+        }
         for (Map.Entry<String, ConcurrentLinkedQueue<Integer>> entry : queues.entrySet()) {
             ConcurrentLinkedQueue<Integer> queue = entry.getValue();
 
@@ -99,6 +104,9 @@ public class BotDecorationQueue {
     }
 
     private static void decorateBot(int botId) {
+        if (BotShutdown.isQuiesced()) {
+            return; // Ticket 09: an async decoration already queued must not run either
+        }
         try {
             Character bot = BotHelpers.getCharFromChannelStorage(botId);
             if (bot == null) return;
