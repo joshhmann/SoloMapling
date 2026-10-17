@@ -329,10 +329,15 @@ final class GCMovementDriver {
 
     /*
      * Promotion (COARSE -> FULL/HALO): rebuild the physics shadow at the bot's current interpolated
-     * position so the resumed physics tick doesn't snap from stale shadow coordinates. Minimal — full
-     * hysteresis/safe-node reconstruction is M3.
+     * position so the resumed physics tick doesn't snap from stale shadow coordinates, and rebuild every
+     * other mode-scoped field with it (see BotTransitionBoundary for the durable/reconstructible split).
+     * The durable half — identity, progression, commitments, lifecycle — is deliberately not touched.
+     *
+     * Package-visible because this is the promotion seam: BotTransitionBoundaryTest drives this exact
+     * entry point rather than the boundary class, so the ordering (reset, then snap, then re-seed the swept
+     * trace) stays under test and the promotion cost stays on BotPerformanceMonitor.recordPromotionReconstruct.
      */
-    private static void reconstructPhysicsFromCoarse(BotMovementState entry, Character bot) {
+    static void reconstructPhysicsFromCoarse(BotMovementState entry, Character bot) {
         long startedAt = System.nanoTime();
         try {
             reconstructPhysicsFromCoarse0(entry, bot);
@@ -342,13 +347,11 @@ final class GCMovementDriver {
     }
 
     private static void reconstructPhysicsFromCoarse0(BotMovementState entry, Character bot) {
-        entry.coarseActive = false;
-        entry.coarsePlan = null;
-        entry.coarsePlanTarget = null;
+        BotTransitionBoundary.reconstructForObserved(entry);
         Point pos = bot.getPosition();
         Point ground = BotPhysicsEngine.findGroundPoint(bot.getMap(), new Point(pos.x, pos.y - 1));
         BotPhysicsEngine.teleportTo(entry, bot, ground != null ? ground : pos);
-        BotMovementManager.resetEntryStateAfterTeleport(entry);
+        BotTransitionBoundary.reseedObservedTrace(entry, bot);
     }
 
     /*

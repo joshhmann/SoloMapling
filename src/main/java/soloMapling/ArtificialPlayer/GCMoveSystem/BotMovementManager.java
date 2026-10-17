@@ -204,7 +204,12 @@ class BotMovementManager {
         entry.navJumpLaunchDelaySteps = Integer.MIN_VALUE;
         entry.navTargetRegionId = -1;
         entry.navPreciseTarget = false;
+        // The blocked-at-a-position tracker qualifies the leg being dropped here, so it goes with it: a
+        // carried position would either give up on a fresh leg immediately or hide a real block.
         entry.navBlockedPosTicks = 0;
+        entry.navBlockedPosGiveUpTicks = 0;
+        entry.navBlockedPosX = Integer.MIN_VALUE;
+        entry.navBlockedPosY = Integer.MIN_VALUE;
     }
 
     static void tickClimbing(BotMovementState entry, Point targetPos, boolean runAiTick) {
