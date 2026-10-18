@@ -212,6 +212,8 @@ public class DiceBot extends BotSM {
                 center = adjustCenterPositionXAxis(center, x, 2, 4, 20);
                 // Same pot rule as the blackjack table: the house pays out of the bets it collected, never mints.
                 if (BotHoldings.payOut(getChr(), mapItem.getItemId(), 1, getInteractors().getRespondant(), center) == 0) {
+                    log("Dice house short of item " + mapItem.getItemId() + " paying "
+                            + getInteractors().getRespondant().getName() + "; rest of the pot stays with the house");
                     return;
                 }
                 try {

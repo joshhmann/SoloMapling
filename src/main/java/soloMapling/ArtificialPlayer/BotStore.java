@@ -3,6 +3,8 @@ package soloMapling.ArtificialPlayer;
 import client.Character;
 import client.Job;
 import client.SkinColor;
+import client.inventory.Equip;
+import client.inventory.Inventory;
 import client.inventory.InventoryType;
 import client.inventory.Item;
 import client.inventory.ItemFactory;
@@ -338,7 +340,8 @@ public final class BotStore {
             // The row is still readable, but this bot's items are not. Let it run this boot with empty
             // tabs, but never write them: the item tables are rewritten tab by tab, so a save now would
             // wipe the stored items with the empty ones the bot is carrying. The write is failed, not
-            // skipped, so the ledger is settled onto the map instead of being silently dropped.
+            // skipped, so the ledger is settled onto the map instead of being silently dropped - except for a
+            // debit, which writeHoldings writes anyway because the stale row would restore it (see there).
             holdingsUnavailable.add(bot.getId());
             log.warn("Could not load the holdings of bot {}: {} - this bot will not write its inventory",
                     bot.getId(), e.getMessage());
@@ -395,18 +398,41 @@ public final class BotStore {
     /**
      * Saves one bot: its row and every tab of its inventory. A missing row is re-created from the bot
      * itself, so a bot that somehow never got a row still cannot lose what it holds.
+     *
+     * @return the ledger stamp read once the state had been captured for the row, or {@link #NO_STAMP} when
+     *         there was no row to write. A caller that has to decide whether the row holds a bot's deltas
+     *         compares the stamp the bot has after the commit against this one: equal means the row is what
+     *         happened up to the capture, different means a delta arrived after it and is not in the row.
      */
-    public static void save(Character bot) throws SQLException {
+    public static int save(Character bot) throws SQLException {
         int botId = botId(bot);
         if (botId < 1) {
-            return;
+            return NO_STAMP;
         }
-        writeTransaction(bot, con -> writeRow(bot, botId, con));
+        int captured = writeTransaction(bot, con -> writeRow(bot, botId, con));
         remember(botId, bot);
+        return captured;
     }
 
+    /**
+     * The stamp {@link #save(Character)} reports when the bot has no row: there is nothing captured for a
+     * restart to read back, so a caller has no row to compare a bot's deltas against.
+     */
+    static final int NO_STAMP = -1;
+
+    /**
+     * Returned by a write whose capture did not bracket one moment: the bot's ledger changed between the start of
+     * the capture (the row's scalars) and its end (the item tabs), so the row would describe two different
+     * instants and no caller could tell whether a delta it holds is in it. {@link #writeTransaction} treats it
+     * as retryable rather than committed - the capture is taken again from scratch - because the alternatives are
+     * both wrong: committing it and letting the caller keep the deltas duplicates a delta the row already has
+     * (a mint), and committing it and letting the caller drop them loses a delta the row does not have (a
+     * destroy) whenever the delta landed between the two halves.
+     */
+    static final int UNSTABLE_CAPTURE = -2;
+
     /** The insert half of a row write: used when the update matched no row, i.e. the slot is still empty. */
-    private static void insertRow(Character bot, int botId, Connection con) throws SQLException {
+    private static int insertRow(Character bot, int botId, Connection con, int capturedAt) throws SQLException {
         Persisted row = of(bot);
         try (PreparedStatement ps = con.prepareStatement(INSERT_ROW)) {
             ps.setInt(1, row.botId);
@@ -414,21 +440,24 @@ public final class BotStore {
             ps.setLong(20, row.createdAt);
             ps.executeUpdate();
         }
-        writeHoldings(bot, con);
+        return writeHoldings(bot, con, capturedAt);
     }
 
     /** The row write of a save: an update, re-created from the bot itself when the row is missing. */
-    private static void writeRow(Character bot, int botId, Connection con) throws SQLException {
+    private static int writeRow(Character bot, int botId, Connection con) throws SQLException {
+        // The capture starts here: everything below - the row's scalars from of(bot) and the item copies from
+        // dumpInventory - has to come from one moment, or a caller cannot tell whether a delta it holds is
+        // already in the row. writeHoldings compares the ledger stamp against this one when the capture ends.
+        int capturedAt = BotHoldings.ledgerStamp(bot);
         Persisted row = of(bot);
         try (PreparedStatement ps = con.prepareStatement(UPDATE_ROW)) {
             bindMutable(ps, row, 1);
             ps.setInt(19, botId);
             if (ps.executeUpdate() == 0) {
-                insertRow(bot, botId, con);
-                return;
+                return insertRow(bot, botId, con, capturedAt);
             }
         }
-        writeHoldings(bot, con);
+        return writeHoldings(bot, con, capturedAt);
     }
 
     /**
@@ -437,17 +466,27 @@ public final class BotStore {
      * letting it wait. That collision is retried so a bot does not lose its first row to it; anything else
      * is the caller's problem.
      */
-    private static void writeTransaction(Character bot, Write write) throws SQLException {
+    private static int writeTransaction(Character bot, Write write) throws SQLException {
         SQLException contention = null;
+        boolean captureUnstable = false;
         for (int attempt = 1; attempt <= WRITE_ATTEMPTS; attempt++) {
             try (Connection con = connectionSource.get()) {
                 con.setAutoCommit(false);
                 try {
-                    write.apply(con);
-                    con.commit();
-                    return;
+                    int captured = write.apply(con);
+                    if (captured == UNSTABLE_CAPTURE) {
+                        // The bot changed across its own capture. Nothing of that attempt is wanted - the row
+                        // would describe two moments - so it is rolled back and the whole capture is taken
+                        // again, on the same attempt budget and with the same backoff as a contention retry.
+                        con.rollback();
+                        captureUnstable = true;
+                    } else {
+                        con.commit();
+                        return captured;
+                    }
                 } catch (SQLException e) {
                     con.rollback();
+                    captureUnstable = false;
                     if (!isContention(e)) {
                         throw e;
                     }
@@ -462,6 +501,11 @@ public final class BotStore {
                 throw new SQLException("Interrupted while writing bot " + bot.getId(), interrupted);
             }
         }
+        if (captureUnstable) {
+            throw new SQLException("Could not capture the state of bot " + bot.getId() + " (" + bot.getName()
+                    + ") after " + WRITE_ATTEMPTS + " attempts: it kept changing while its row was being"
+                    + " written, so no row could be written from one moment of it");
+        }
         log.warn("Could not write bot {} ({}) after {} attempts: {}", bot.getId(), bot.getName(), WRITE_ATTEMPTS,
                 contention.getMessage());
         throw contention;
@@ -472,10 +516,14 @@ public final class BotStore {
         return "40001".equals(e.getSQLState()) || e.getErrorCode() == 1213 || e.getErrorCode() == 1205;
     }
 
-    /** One bot's write, run inside its own transaction and committed by {@link #writeTransaction}. */
+    /**
+     * One bot's write, run inside its own transaction and committed by {@link #writeTransaction}. It returns
+     * either the ledger stamp that brackets the state it captured - read before the capture began and checked
+     * again when it ended - or {@link #UNSTABLE_CAPTURE} when the bot changed across its own capture.
+     */
     @FunctionalInterface
     private interface Write {
-        void apply(Connection con) throws SQLException;
+        int apply(Connection con) throws SQLException;
     }
 
     /** Where the store gets its connections; a unit test swaps in a mock pool. */
@@ -508,39 +556,182 @@ public final class BotStore {
      * The durable exit for a bot leaving the world: its state goes into the store. If it cannot be
      * written, the bot is settled onto the map it is standing on instead, so what it accumulated is never
      * silently destroyed.
+     *
+     * <p>A bot that has given value away is the exception, since settling cannot return a debit: the value is
+     * already in someone else's hands, and the stored row still claims it, so the delta may only ever be
+     * recorded. Such a bot is retried and, if even that cannot be written, its unreadable stored holdings are
+     * overwritten with what it really holds (see {@link #writeHoldings(Character, Connection)}).
+     *
+     * <p>Handing the deltas over to {@link BotHoldings#discardIfUnchanged(Character, int)} has one precondition:
+     * the row just written has to be what holds their value. A bot can change while its own write is in flight - casino
+     * payouts and bot-owned shops run off the tick thread - so a delta can arrive after the state was captured
+     * for that row. {@link #save(Character)} reports the stamp it saw at capture time, so a stamp that differs
+     * afterwards is exactly a delta the row does not record: it stays, and takes the same route as a failed
+     * write, rather than being settled onto the map on top of the row that already holds it.
      */
     public static void saveThenSettle(Character bot) {
         try {
-            save(bot);
-            // The ledger exists to hand value back to the world if a bot dies holding it. Now that the
-            // value is durable, keeping the deltas would let a later settle hand out the same value twice.
-            BotHoldings.discard(bot);
+            int captured = save(bot);
+            if (captured == NO_STAMP || BotHoldings.discardIfUnchanged(bot, captured)) {
+                // The ledger exists to hand value back to the world if a bot dies holding it. Now that the
+                // value is durable, keeping the deltas would let a later settle hand out the same value twice.
+                // The comparison and the removal are one step, so a delta that arrived after the capture is kept
+                // and takes the changed route below instead of being dropped with a row that does not hold it.
+                return;
+            }
+            log.warn("Bot {} ({}) changed while its row was being written, so that row does not record it",
+                    bot.getId(), bot.getName());
         } catch (Exception e) {
-            log.warn("Could not save bot {} ({}), settling its holdings onto the map instead", bot.getId(),
-                    bot.getName(), e);
-            BotHoldings.settle(bot);
+            log.warn("Could not save bot {} ({})", bot.getId(), bot.getName(), e);
+        }
+        if (BotHoldings.hasUnpersistedDebit(bot) && recordDebit(bot)) {
+            return;
+        }
+        // Nothing here can be written for this bot, and the value its deltas stand for has nowhere else to go:
+        // what it took in is handed to its map, while a debit - value already in someone else's hands - stays
+        // recorded as the row claims it (see the javadoc above).
+        log.warn("Could not save bot {} ({}), settling its holdings onto the map instead", bot.getId(),
+                bot.getName());
+        BotHoldings.settle(bot);
+    }
+
+    /**
+     * Records a debit that the ordinary save could not write, because settling cannot do it: the value the
+     * debit stands for is already in someone else's hands, so forgetting the delta leaves the stored row
+     * claiming it, and the next boot restores it on top of what the recipient holds - the same value minted
+     * twice. A bot in that state is retried rather than dropped, and only when even the retry cannot be written
+     * is its stored claim destroyed instead of being left to be restored.
+     *
+     * @return true when some durable record of the debit now exists, so the ledger may be dropped
+     */
+    private static boolean recordDebit(Character bot) {
+        try {
+            log.warn("Bot {} ({}) could not be saved and holds value its stored row still claims; retrying the"
+                    + " write rather than settling the debit onto the map", bot.getId(), bot.getName());
+            int captured = save(bot);
+            if (captured == NO_STAMP || BotHoldings.discardIfUnchanged(bot, captured)) {
+                return true;   // the debit is durable now
+            }
+            log.warn("The debit of bot {} ({}) changed while its retry was writing it, so that row does not"
+                    + " record it", bot.getId(), bot.getName());
+        } catch (Exception retryFailed) {
+            log.warn("The debit of bot {} ({}) could not be written on the retry either", bot.getId(),
+                    bot.getName(), retryFailed);
+        }
+        try {
+            int destroyed = destroyStoredHoldings(bot);
+            if (destroyed == NO_STAMP || BotHoldings.discardIfUnchanged(bot, destroyed)) {
+                log.warn("The debit of bot {} ({}) could not be written, so its stored claim was taken down"
+                        + " instead: what its row claimed and the bot no longer holds is destroyed rather than"
+                        + " restored", bot.getId(), bot.getName());
+                return true;   // nothing durable claims the value any more
+            }
+            // The destroy wrote the row as the bot stood at one moment, and something changed after it. That
+            // delta is in no row; settling it now would hand out what the row already holds, so the value is
+            // lost with the bot - the direction this path loses in.
+            log.warn("The debit of bot {} ({}) changed after its stored claim was taken down, so that row does"
+                    + " not record it", bot.getId(), bot.getName());
+            return true;
+        } catch (Exception destroyFailed) {
+            log.warn("The debit of bot {} ({}) could not be written, not even by clearing its stored holdings:"
+                    + " the stored row still claims value the bot already gave away", bot.getId(), bot.getName(),
+                    destroyFailed);
+            return false;
         }
     }
 
-    /** Saves every bot in the collection, reporting the ones that could not be written. */
+    /**
+     * The last durable resort for a debit that will not write: write the row from the bot as it stands, so a meso
+     * debit is on record, and - only when the debit is in items - write the bot's live holdings over the stored
+     * item rows, because a bot's items live in their own rows and not in its row. Nothing else can take back a
+     * stale item claim, and leaving that claim alone is what a restart would restore while the recipient holds
+     * the payout.
+     *
+     * <p>What the item write does is destroy the stored baseline the bot's own row claimed, which is the
+     * direction to lose in: it is the bot's own untouched value, while a value minted this way belongs to nobody
+     * and cannot be taken back by any later write. The bot's live holdings are written, so what it really holds
+     * survives. A meso-only debit leaves the stored item rows alone entirely: the row itself records it, and no
+     * item claim is stale.
+     */
+    private static int destroyStoredHoldings(Character bot) throws SQLException {
+        int botId = botId(bot);
+        if (botId < 1) {
+            return NO_STAMP;   // no stored row: nothing a restart could restore, and nothing to compare a stamp to
+        }
+        boolean itemDebit = BotHoldings.hasUnpersistedItemDebit(bot);
+        return writeTransaction(bot, con -> {
+            // This capture is bracketed the same way a save's is: the row it leaves behind has to describe one
+            // moment. Whether a delta that arrives during it is kept or dropped is decided by the caller against
+            // the stamp this returns, not here.
+            int capturedAt = BotHoldings.ledgerStamp(bot);
+            try (PreparedStatement ps = con.prepareStatement(UPDATE_ROW)) {
+                bindMutable(ps, of(bot), 1);
+                ps.setInt(19, botId);
+                ps.executeUpdate();   // 0 means the row is gone already, which is just as good here
+            }
+            List<Pair<Item, InventoryType>> items = itemDebit ? dumpInventory(bot) : List.of();
+            if (BotHoldings.ledgerStamp(bot) != capturedAt) {
+                return UNSTABLE_CAPTURE;
+            }
+            if (itemDebit) {
+                ItemFactory.INVENTORY.saveItems(items, bot.getId(), con);
+            }
+            return capturedAt;
+        });
+    }
+
+    /**
+     * Saves every bot in the collection, reporting the ones that could not be written. The ledger is kept for a
+     * bot whose value changed while its row was being written: the next sweep writes that change, which a
+     * discard would have dropped while the row above it does not hold it.
+     */
     public static int saveAll(Collection<Character> characters) {
+        return saveAll(characters, false);
+    }
+
+    /**
+     * @param lastWrite true when no later write can happen, as at server shutdown. A bot whose row cannot be
+     *        written then takes the debit route - retried, and its stale stored claim destroyed if the retry
+     *        fails - instead of being left with a row that a restart would restore on top of the value the bot
+     *        already gave away. Mid-run the deltas are simply kept, because a later sweep retries them.
+     */
+    private static int saveAll(Collection<Character> characters, boolean lastWrite) {
         int saved = 0;
         for (Character chr : characters) {
             if (chr == null || !BotHelpers.isBot(chr)) {
                 continue;
             }
             try {
-                save(chr);
-                // Same rule as saveThenSettle: once the value is durable, the ledger must not hand it to
-                // the world a second time.
-                BotHoldings.discard(chr);
+                int captured = save(chr);
                 saved++;
+                if (captured == NO_STAMP || BotHoldings.discardIfUnchanged(chr, captured)) {
+                    // Same rule as saveThenSettle: once the value is durable, the ledger must not hand it to
+                    // the world a second time. The comparison and the removal are one step, so a delta that
+                    // arrived after the capture stays and takes the changed route below.
+                    continue;
+                }
+                if (!lastWrite) {
+                    log.warn("Bot {} ({}) changed while its row was being written, so its deltas are kept for"
+                            + " the next write", chr.getId(), chr.getName());
+                    continue;
+                }
+                // There is no next write: this is the process's last. A delta the row missed - a debit the
+                // recipient still holds, a credit the bot earned - dies with the ledger, so it is written or
+                // taken down instead of being left for a restart to get wrong.
+                log.warn("Bot {} ({}) changed while the last row of the process was being written, so that row"
+                        + " does not record it", chr.getId(), chr.getName());
+                recordDebit(chr);
+                continue;
             } catch (Exception e) {
                 log.warn("Could not save bot {} ({})", chr.getId(), chr.getName(), e);
+            }
+            if (lastWrite && BotHoldings.hasUnpersistedDebit(chr)) {
+                recordDebit(chr);
             }
         }
         return saved;
     }
+
 
     /**
      * The shutdown sweep: every bot is settled and saved before the worlds go away. An open trade window
@@ -556,7 +747,9 @@ public final class BotStore {
             }
             closeOpenWindow(chr);
         }
-        return saveAll(characters);
+        // The last write of the process: a bot whose row will not write must not be left claiming value it has
+        // already given away, because no later sweep can correct it.
+        return saveAll(characters, true);
     }
 
     /** Closes a bot's trade window through the trade's own cancel path, which refunds both sides. */
@@ -607,14 +800,44 @@ public final class BotStore {
      * succeeded" as "the value is durable" and drop the bot's ledger. Failing here sends the ledger to
      * {@link BotHoldings#settle(Character)} instead, so what the bot earned is handed to the map rather
      * than destroyed.
+     *
+     * <p>The exception is a bot that has given value away (see
+     * {@link BotHoldings#hasUnpersistedDebit(Character)}): for it the same refusal is the minting direction,
+     * because the stored holdings cannot be corrected while the value they claim is already in someone else's
+     * hands, so a write that destroys the unreadable baseline is the right failure.
      */
-    private static void writeHoldings(Character bot, Connection con) throws SQLException {
+    private static int writeHoldings(Character bot, Connection con, int capturedAt) throws SQLException {
         if (holdingsUnavailable.contains(bot.getId())) {
-            throw new SQLException("Not writing the inventory of bot " + bot.getId() + " (" + bot.getName()
-                    + "): its stored holdings could not be loaded, so the write is failed and what it holds"
-                    + " is settled onto its map");
+            if (!BotHoldings.hasUnpersistedDebit(bot)) {
+                throw new SQLException("Not writing the inventory of bot " + bot.getId() + " (" + bot.getName()
+                        + "): its stored holdings could not be loaded, so the write is failed and what it holds"
+                        + " is settled onto its map");
+            }
+            // The bot holds less than its stored row claims - a payout, a purchase, an item destroyed while
+            // held - and its stored holdings cannot be read, so every write would fail and the row would
+            // restore that value on the next boot, on top of what the other side already holds. Overwriting
+            // the unreadable baseline destroys it, and destroying is the direction to err in here: the
+            // alternative mints value that no later write can take back, while what is lost this way is only
+            // what this bot's own untouched baseline claimed.
+            log.warn("Writing the holdings of bot {} ({}) over stored holdings that could not be read: it holds"
+                    + " value its stored row would otherwise restore", bot.getId(), bot.getName());
         }
-        ItemFactory.INVENTORY.saveItems(dumpInventory(bot), bot.getId(), con);
+        List<Pair<Item, InventoryType>> items = dumpInventory(bot);
+        // The capture is complete. If the stamp still matches the one taken before the row's scalars, nothing
+        // changed across the whole capture, so this stamp brackets the state in the row: a delta ledgered at or
+        // before it may be in the row, a later one is certainly not, and a caller comparing the bot's stamp
+        // after the commit against this one can tell the two apart. If it does not match, the delta landed in
+        // between - after the scalars were read, before the tabs were - and the capture describes no one
+        // moment. That is not something a caller can be handed: a stamp read after the capture began would let
+        // it treat such a delta as recorded, and a debit treated that way is forgiven while its row keeps
+        // claiming the value the counterparty durably holds (a mint). The capture is therefore refused instead
+        // and the write is retried from scratch - not kept-and-settled, which duplicates a credit the row does
+        // hold - until either a capture brackets one moment or the attempt budget runs out.
+        if (BotHoldings.ledgerStamp(bot) != capturedAt) {
+            return UNSTABLE_CAPTURE;
+        }
+        ItemFactory.INVENTORY.saveItems(items, bot.getId(), con);
+        return capturedAt;
     }
 
     private static Persisted of(Character bot) {
@@ -658,13 +881,55 @@ public final class BotStore {
         ps.setLong(first + 17, row.savedAt);
     }
 
+    /**
+     * Snapshots every stored tab: the state each item is in while this call holds that tab's lock, not the
+     * items themselves. {@code Inventory.list()} is a live view of the tab, not a copy, and a casino payout
+     * removes its chips from the payer's inventory on a thread of its own while the payer keeps ticking, so
+     * reading it unlocked can both commit an item the payout then removes - which a restart would restore as an
+     * extra one - and throw {@link java.util.ConcurrentModificationException} half way through, which in the
+     * despawn path flips a bot onto the failed-write route.
+     *
+     * <p>The items are detached here rather than at statement time for the same reason: {@code ItemFactory}
+     * binds position, quantity, owner, pet, flag, expiry and giver when the INSERT runs, which is after the lock
+     * is gone, and a payout that removed a held item in between would otherwise be written as it stood before
+     * the removal. The copies carry exactly the fields the write binds ({@link #copyForWrite(Item)}), so a row
+     * describes one moment of the bot's holdings.
+     *
+     * <p>What this does not cover: a change made to the holdings after the copies were taken is not in the row.
+     * That is what the ledger stamp is for - a change that came through this accounting path bumps it, and a
+     * writer that sees a different stamp keeps the deltas instead of discarding them with a row that does not
+     * record them (see {@link BotHoldings#ledgerStamp(Character)}). The lock is released before the statement
+     * runs, so it never spans the DB.
+     */
     private static List<Pair<Item, InventoryType>> dumpInventory(Character bot) {
         List<Pair<Item, InventoryType>> items = new ArrayList<>();
         for (InventoryType type : STORED_TYPES) {
-            for (Item item : bot.getInventory(type).list()) {
-                items.add(new Pair<>(item, type));
+            Inventory inv = bot.getInventory(type);
+            inv.lockInventory();
+            try {
+                for (Item item : inv.list()) {
+                    items.add(new Pair<>(copyForWrite(item), type));
+                }
+            } finally {
+                inv.unlockInventory();
             }
         }
         return items;
+    }
+
+    /**
+     * Detaches one held item from its inventory, so the write cannot be changed by a later mutation of the live
+     * object. This is the inventory code's own detach ({@code Item.copy()}, which {@code Equip} overrides to
+     * carry its stats) plus the one field it leaves behind that the write binds: the giver.
+     */
+    private static Item copyForWrite(Item item) {
+        Item copy = item.copy();
+        copy.setGiftFrom(item.getGiftFrom());
+        // Equip.copy() does not carry the ring id the equipment insert binds, and it has other callers whose
+        // meaning must not change, so the one field this write needs is added here.
+        if (copy instanceof Equip copiedEquip && item instanceof Equip heldEquip) {
+            copiedEquip.setRingId(heldEquip.getRingId());
+        }
+        return copy;
     }
 }

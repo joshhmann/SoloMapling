@@ -5,28 +5,28 @@ import client.Character;
 import client.inventory.Equip;
 import client.inventory.Item;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import server.maps.MapItem;
+import server.maps.MapObject;
+import server.maps.MapObjectType;
 import server.maps.MapleMap;
 
 import java.awt.Point;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyByte;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyShort;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.spy;
 
 /*
  * DropCommands is the fabrication boundary: every drop it makes itself is a prop (conjured=true) except an item
- * the caller hands in. These tests capture the flag at the MapleMap call so a future refactor cannot quietly
- * flip a fabrication site back to real value.
+ * the caller hands in. These tests read the flag off the drop the map really registered, so a future refactor
+ * that drops MapItem.setConjured from the map's drop paths - or flips a fabrication site back to real value -
+ * fails here. Only calcDropPos is stubbed, since it needs loaded footholds and this checkout is WZ-less.
  */
 class DropCommandsProvenanceTest {
 
@@ -40,17 +40,20 @@ class DropCommandsProvenanceTest {
     }
 
     private static MapleMap mapFor(Character bot) {
-        MapleMap map = mock(MapleMap.class);
-        when(map.spawnItemDropNoExpire(any(), any(), any(), any(), anyBoolean(), anyBoolean(), anyBoolean()))
-                .thenReturn(mock(MapItem.class));
+        MapleMap map = spy(new MapleMap(900000001, 0, 1, 0, 1f));
+        doReturn(AT).when(map).calcDropPos(any(), any());
         bot.setMap(map);
         return map;
     }
 
-    private static boolean itemDropFlag(MapleMap map) {
-        ArgumentCaptor<Boolean> conjured = ArgumentCaptor.forClass(Boolean.class);
-        verify(map).spawnItemDrop(any(), any(), any(), any(), anyBoolean(), anyBoolean(), conjured.capture());
-        return conjured.getValue();
+    private static MapItem registeredDrop(MapleMap map) {
+        for (MapObject object : map.getMapObjectsInRange(AT, 40000.0, List.of(MapObjectType.ITEM))) {
+            MapItem drop = (MapItem) object;
+            if (!drop.isPickedUp()) {
+                return drop;
+            }
+        }
+        return null;
     }
 
     @Test
@@ -60,7 +63,9 @@ class DropCommandsProvenanceTest {
 
         DropCommands.botDropItem(bot, STAMP);
 
-        assertTrue(itemDropFlag(map), "a bot-fabricated item drop is a prop");
+        MapItem drop = registeredDrop(map);
+        assertNotNull(drop, "the drop has to be on the map");
+        assertTrue(drop.isConjured(), "a bot-fabricated item drop is a prop");
     }
 
     @Test
@@ -70,7 +75,9 @@ class DropCommandsProvenanceTest {
 
         DropCommands.botThrowEquip(bot, STAMP, AT);
 
-        assertTrue(itemDropFlag(map), "a bot-fabricated equip drop is a prop");
+        MapItem drop = registeredDrop(map);
+        assertNotNull(drop, "the drop has to be on the map");
+        assertTrue(drop.isConjured(), "a bot-fabricated equip drop is a prop");
     }
 
     @Test
@@ -81,7 +88,9 @@ class DropCommandsProvenanceTest {
         // A mocked Equip: the constructor needs loaded item data, and all this seam cares about is the flag.
         DropCommands.botThrowEquip(bot, mock(Equip.class), AT);
 
-        assertFalse(itemDropFlag(map), "a caller-supplied equip is real value and stays creditable");
+        MapItem drop = registeredDrop(map);
+        assertNotNull(drop, "the drop has to be on the map");
+        assertFalse(drop.isConjured(), "a caller-supplied equip is real value and stays creditable");
     }
 
     @Test
@@ -91,10 +100,9 @@ class DropCommandsProvenanceTest {
 
         DropCommands.botThrowMeso(bot, 1000, AT);
 
-        ArgumentCaptor<Boolean> conjured = ArgumentCaptor.forClass(Boolean.class);
-        verify(map).spawnMesoDrop(anyInt(), any(), any(), any(), anyBoolean(), anyByte(), anyShort(),
-                conjured.capture());
-        assertTrue(conjured.getValue(), "a bot-fabricated meso drop is a prop");
+        MapItem drop = registeredDrop(map);
+        assertNotNull(drop, "the drop has to be on the map");
+        assertTrue(drop.isConjured(), "a bot-fabricated meso drop is a prop");
     }
 
     @Test
@@ -104,9 +112,9 @@ class DropCommandsProvenanceTest {
 
         DropCommands.botThrowItemNoExpireOwnerOnly(bot, STAMP, AT);
 
-        ArgumentCaptor<Boolean> conjured = ArgumentCaptor.forClass(Boolean.class);
-        verify(map).spawnItemDropNoExpire(any(), any(), any(), any(), anyBoolean(), anyBoolean(), conjured.capture());
-        assertTrue(conjured.getValue(), "a bot-fabricated owner-only drop is a prop");
+        MapItem drop = registeredDrop(map);
+        assertNotNull(drop, "the drop has to be on the map");
+        assertTrue(drop.isConjured(), "a bot-fabricated owner-only drop is a prop");
     }
 
     @Test
@@ -116,7 +124,9 @@ class DropCommandsProvenanceTest {
 
         Item handedBack = DropCommands.botThrowItem(bot, STAMP, AT);
 
-        assertTrue(itemDropFlag(map), "a bot-fabricated item drop is a prop");
-        verify(map).spawnItemDrop(any(), any(), eq(handedBack), any(), anyBoolean(), anyBoolean(), anyBoolean());
+        MapItem drop = registeredDrop(map);
+        assertNotNull(drop, "the drop has to be on the map");
+        assertTrue(drop.isConjured(), "a bot-fabricated item drop is a prop");
+        assertSame(handedBack, drop.getItem(), "the map gets the item the command made, not a copy of it");
     }
 }

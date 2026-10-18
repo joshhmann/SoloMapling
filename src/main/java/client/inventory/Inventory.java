@@ -296,16 +296,31 @@ public class Inventory implements Iterable<Item> {
     }
 
     public void removeItem(short slot, short quantity, boolean allowZero) {
-        Item item = getItem(slot);
-        if (item == null) {// TODO is it ok not to throw an exception here?
-            return;
+        Item item;
+        boolean removed = false;
+        lock.lock();
+        try {
+            item = inventory.get(slot);
+            if (item == null) {// TODO is it ok not to throw an exception here?
+                return;
+            }
+            // The quantity is read, rewritten and possibly removed under the tab's lock: taking it unlocked
+            // let a save or a pickup see a half-applied removal, and `list()` hands out a live view of this map.
+            item.setQuantity((short) (item.getQuantity() - quantity));
+            if (item.getQuantity() < 0) {
+                item.setQuantity((short) 0);
+            }
+            if (item.getQuantity() == 0 && !allowZero) {
+                inventory.remove(slot);
+                removed = true;
+            }
+        } finally {
+            lock.unlock();
         }
-        item.setQuantity((short) (item.getQuantity() - quantity));
-        if (item.getQuantity() < 0) {
-            item.setQuantity((short) 0);
-        }
-        if (item.getQuantity() == 0 && !allowZero) {
-            removeSlot(slot);
+
+        if (removed && ItemConstants.isRateCoupon(item.getItemId())) {
+            // deadlocks with coupons rates found thanks to GabrielSin & Masterrulax
+            ThreadManager.getInstance().newTask(() -> owner.updateCouponRates());
         }
     }
 

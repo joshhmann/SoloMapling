@@ -544,8 +544,11 @@ public class TutorialBot extends BotSM {
         if (scrolledWep == null) {
             // A cursed scroll destroys the weapon; scrollEquipWithId reports that by returning null
             // (ItemInformationProvider:1136). There is nothing to upgrade or hand back - the caller's
-            // returnUpgradedWeapon(null) is a no-op and still closes the dialogue.
+            // returnUpgradedWeapon(null) is a no-op and still closes the dialogue. The loot credit for the
+            // weapon must go with it, though: the player dropped it and no longer has it, so the bot striking
+            // it out of its inventory and ledger is what keeps a destroyed weapon from staying its value.
             botScrollFail(getChr());
+            BotHoldings.destroyHeldItem(getChr(), playersWep);
             return null;
         }
         scrolledWep.setOwner(getInteractors().getRespondant().getName());

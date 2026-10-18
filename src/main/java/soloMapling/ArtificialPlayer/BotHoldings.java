@@ -12,8 +12,10 @@ import server.maps.MapItem;
 import server.maps.MapleMap;
 
 import java.awt.Point;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -27,8 +29,9 @@ import java.util.WeakHashMap;
  * Every change is recorded in a per-bot ledger of what this path added (itemId to quantity, plus a meso
  * delta). The ledger is the fallback for value that would otherwise be destroyed: {@link #settle(Character)}
  * drops it where the bot stands, which is what a bot's holdings do when the bot cannot be persisted
- * ({@link BotStore#saveThenSettle}), while {@link #discard(Character)} forgets it once the bot's state is
- * durable and the value must not be handed out a second time.
+ * ({@link BotStore#saveThenSettle}), while {@link #discardIfUnchanged(Character, int)} forgets it once the
+ * bot's state is durable and the value must not be handed out a second time - the deltas it drops are only the
+ * ones the write recorded, and it keeps the ones that arrived after that write, because those are in no row.
  */
 public final class BotHoldings {
 
@@ -49,13 +52,16 @@ public final class BotHoldings {
     private static final class Ledger {
         private final Map<Integer, Integer> itemDeltas = new LinkedHashMap<>();
         private int mesoDelta;
+        private int stamp;
 
         synchronized void addItem(int itemId, int quantity) {
             itemDeltas.merge(itemId, quantity, Integer::sum);
+            stamp++;
         }
 
         synchronized void addMeso(int amount) {
             mesoDelta += amount;
+            stamp++;
         }
 
         synchronized Map<Integer, Integer> items() {
@@ -65,15 +71,55 @@ public final class BotHoldings {
         synchronized int meso() {
             return mesoDelta;
         }
+
+        // How many times the deltas here have changed. A writer reads it before it captures a bot's state and
+        // again once the row it built from that state is committed: a different value means the bot gave value
+        // away (or took value in) while the write was in flight, so that change is not in the row and the deltas
+        // must not be discarded with a row that does not record them.
+        synchronized int stamp() {
+            return stamp;
+        }
+
+        // True when the bot has given away more than it took in: value that left the world's accounts here
+        // while the stored row still claims it.
+        synchronized boolean hasDebit() {
+            return mesoDelta < 0 || hasItemDebit();
+        }
+
+        // Whether it is the stored item claims, rather than the stored meso, that the deltas invalidate.
+        synchronized boolean hasItemDebit() {
+            for (int delta : itemDeltas.values()) {
+                if (delta < 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
     }
 
     /** Drops every ledger this test JVM recorded, so one test cannot inherit another's deltas. */
     static void clearForTest() {
-        ledgers.clear();
+        synchronized (ledgers) {   // the same monitor every other access takes
+            ledgers.clear();
+        }
     }
 
-    private static Ledger ledger(Character bot) {
-        return ledgers.computeIfAbsent(bot, ignored -> new Ledger());
+    /**
+     * Every delta goes through here: the lookup and the mutation happen under the map's own monitor, so a delta
+     * can never be applied to a ledger that {@link #discardIfUnchanged(Character, int)} has just dropped (the
+     * delta would be invisible to whoever asked, which is how a mint or a destroy starts). The Ledger's own
+     * monitor is taken inside this one - map monitor first, Ledger second, never the reverse.
+     */
+    private static void mutate(Character bot, Mutation mutation) {
+        synchronized (ledgers) {
+            mutation.apply(ledgers.computeIfAbsent(bot, ignored -> new Ledger()));
+        }
+    }
+
+    /** One delta applied to one bot's ledger; see {@link #mutate(Character, Mutation)} for the locking contract. */
+    @FunctionalInterface
+    private interface Mutation {
+        void apply(Ledger ledger);
     }
 
     private static short slotMaxFor(int itemId) {
@@ -164,7 +210,7 @@ public final class BotHoldings {
                 return false;
             }
             applyGrant(inv, item);
-            ledger(bot).addItem(item.getItemId(), (int) item.getQuantity());
+            mutate(bot, ledger -> ledger.addItem(item.getItemId(), (int) item.getQuantity()));
             return true;
         } finally {
             inv.unlockInventory();
@@ -177,7 +223,7 @@ public final class BotHoldings {
             return false;
         }
         bot.gainMeso(amount, false, false, false);
-        ledger(bot).addMeso(amount);
+        mutate(bot, ledger -> ledger.addMeso(amount));
         return true;
     }
 
@@ -188,14 +234,14 @@ public final class BotHoldings {
      */
     public static void noteMesoSpent(Character bot, int amount) {
         if (amount > 0) {
-            ledger(bot).addMeso(-amount);
+            mutate(bot, ledger -> ledger.addMeso(-amount));
         }
     }
 
     /** Reverses {@link #noteMesoSpent} when a trade offer comes back, as {@code Trade.cancel} refunds the wallet. */
     public static void noteMesoRefund(Character bot, int amount) {
         if (amount > 0) {
-            ledger(bot).addMeso(amount);
+            mutate(bot, ledger -> ledger.addMeso(amount));
         }
     }
 
@@ -211,7 +257,7 @@ public final class BotHoldings {
      */
     public static void noteMesoEarned(Character character, int amount) {
         if (amount > 0 && BotHelpers.isBot(character)) {
-            ledger(character).addMeso(amount);
+            mutate(character, ledger -> ledger.addMeso(amount));
         }
     }
 
@@ -224,7 +270,7 @@ public final class BotHoldings {
             return false;
         }
         bot.gainMeso(-amount, false, false, false);
-        ledger(bot).addMeso(-amount);
+        mutate(bot, ledger -> ledger.addMeso(-amount));
         return true;
     }
 
@@ -234,6 +280,10 @@ public final class BotHoldings {
      * winning hand out of the bets it collected - the house pays what it holds and mints nothing - so the amount
      * paid is capped by the bot's stock. The debit is ledgered and the units are destocked before the drops are
      * created, so a failure between the two destroys value rather than minting it.
+     *
+     * <p>It pays by item id, so each unit becomes a plain item of that id: a unit whose value lives in the object
+     * itself - an equipment with its stats, a pet - loses that. {@link #payOutItem(Character, Item, Character,
+     * Point)} is the call for handing over a particular instance.
      *
      * @return units actually paid; 0 when the bot holds none of the item, has no map, or quantity is not positive
      */
@@ -246,6 +296,7 @@ public final class BotHoldings {
             return 0;
         }
         Inventory inv = bot.getInventory(ItemConstants.getInventoryType(itemId));
+        List<Item> taken = new ArrayList<>();
         int paid = 0;
         inv.lockInventory();
         try {
@@ -254,6 +305,12 @@ public final class BotHoldings {
                     break;
                 }
                 int take = Math.min(stack.getQuantity(), quantity - paid);
+                if (take <= 0) {
+                    continue;
+                }
+                // removeItem can empty this stack out of the inventory, but the object stays the identity the
+                // units taken from it belong to: same owner, same flag, same giver, same expiry.
+                taken.add(stack);
                 inv.removeItem(stack.getPosition(), (short) take, false);
                 paid += take;
             }
@@ -263,15 +320,30 @@ public final class BotHoldings {
         if (paid == 0) {
             return 0;   // the house holds none of this denomination: it pays less instead of minting chips
         }
-        ledger(bot).addItem(itemId, -paid);
+        int units = paid;   // the destock loop's counter is not effectively final, a lambda needs one that is
+        mutate(bot, ledger -> ledger.addItem(itemId, -units));
+        int landed = 0;
         for (int i = 0; i < paid; i++) {
             MapItem drop = map.spawnItemDropNoExpire(bot, recipient, new Item(itemId, (short) 0, (short) 1, -1),
                     position, false, false, false);
             if (drop != null) {
                 drop.setPermanentOwner(true);
+                landed++;
             }
         }
-        return paid;
+        if (landed < paid) {
+            // The drops came back null, which is what a map with FieldLimit.DROP_LIMIT does: it broadcasts the
+            // disappearing-drop animation and registers nothing (MapleMap.disappearingItemDrop), so those units
+            // never reach the recipient. A map property is not the house's loss to take: the units that never
+            // landed go back into the payer's inventory, so what it holds is exactly what it has, and only the
+            // units the recipient really got count as paid out. What restock could not put back is gone, and the
+            // ledger keeps it debited: a unit that is not in the inventory must never be credited to it.
+            int restored = restock(inv, taken, itemId, paid - landed);
+            if (restored > 0) {
+                mutate(bot, ledger -> ledger.addItem(itemId, restored));
+            }
+        }
+        return landed;
     }
 
     /**
@@ -313,20 +385,258 @@ public final class BotHoldings {
         } finally {
             inv.unlockInventory();
         }
-        ledger(bot).addItem(held.getItemId(), -held.getQuantity());
+        Item gone = held;   // the scan's local is reassigned, a lambda needs one that is not
+        mutate(bot, ledger -> ledger.addItem(gone.getItemId(), -gone.getQuantity()));
         MapItem drop = map.spawnItemDropNoExpire(bot, recipient, held, position, false, false, false);
-        if (drop != null) {
-            drop.setPermanentOwner(true);
+        if (drop == null) {
+            // The map refused the drop: FieldLimit.DROP_LIMIT registers nothing and only plays the
+            // disappearing-drop animation (MapleMap.disappearingItemDrop), so this instance never reached the
+            // recipient. It is still the bot's, so it goes back into the inventory - the same object, so an
+            // equip keeps its stats - and the ledger debit for it is undone. If there is no room for it the
+            // instance is gone for good and the debit stays: a payout that cannot be completed destroys the
+            // value rather than handing it out twice.
+            if (putBack(inv, held)) {
+                mutate(bot, ledger -> ledger.addItem(gone.getItemId(), gone.getQuantity()));
+            }
+            return false;
         }
-        return drop != null;
+        drop.setPermanentOwner(true);
+        return true;
     }
 
     /**
-     * Forgets a bot's deltas without dropping anything: the value they stand for is already durable, so a
-     * later settle must not hand the same value to the world a second time.
+     * Puts units that never landed back into the payer's inventory, carrying the identity of the stacks the
+     * payout took them from - owner, flag, giver, expiry - so they rejoin those stacks instead of becoming new
+     * ones. Callers invoke it right after those units left this same inventory, which is what makes room for
+     * them, but another thread can have taken that room since (casino payouts run off the bot's tick thread),
+     * so this reports the units it really put back: a caller may only credit those, never the units it asked
+     * for. What could not be put back is gone, which is the direction to lose in - the other direction is
+     * value the ledger credits to an inventory that does not hold it, which {@link #settle(Character)} then
+     * hands to the world on top of the value that is already there.
+     *
+     * @param taken    the stacks the payout took units from, in the order it took them
+     * @param quantity how many units came back from the map
+     * @return how many of those units are in the inventory again
      */
-    public static void discard(Character bot) {
-        ledgers.remove(bot);
+    private static int restock(Inventory inv, List<Item> taken, int itemId, int quantity) {
+        if (quantity <= 0 || taken.isEmpty()) {
+            return 0;
+        }
+        inv.lockInventory();
+        try {
+            if (inv.getType() == InventoryType.EQUIP) {
+                // An equip's value is in the object, not in its id, and every equip is quantity 1
+                // (canHoldLocked): hand the very instances that were taken back, one per slot, as many as
+                // there is room for - never collapse several of them into one instance.
+                int restored = 0;
+                for (Item equip : taken) {
+                    if (restored >= quantity) {
+                        break;
+                    }
+                    equip.setQuantity((short) 1);
+                    if (inv.addItem(equip) != -1) {
+                        restored++;
+                    }
+                }
+                return restored;
+            }
+            int remaining = quantity;
+            int restored = 0;
+            // The units went out of these stacks in the order they were taken, so they go back the same way,
+            // the last stack first: every unit rejoins the stack whose identity it was taken from, while that
+            // identity (owner, flag, giver) is still known rather than approximated from the item id.
+            for (int i = taken.size() - 1; i >= 0 && remaining > 0; i--) {
+                Item origin = taken.get(i);
+                if (inv.getItem(origin.getPosition()) != origin) {
+                    continue;   // that stack was emptied and left the inventory: its room is a free slot now
+                }
+                int room = slotMaxFor(itemId) - origin.getQuantity();
+                int back = Math.min(room, remaining);
+                if (back <= 0) {
+                    continue;
+                }
+                origin.setQuantity((short) (origin.getQuantity() + back));
+                remaining -= back;
+                restored += back;
+            }
+            if (remaining > 0) {
+                restored += spill(inv, taken.get(0), itemId, remaining);
+            }
+            return restored;
+        } finally {
+            inv.unlockInventory();
+        }
+    }
+
+    /**
+     * Puts units back into fresh stacks, for the ones whose own stack filled up or left the inventory. This is
+     * {@link #applyGrant(Inventory, Item)}'s placement with a count: room is not knowable up front here (the
+     * room the payout freed can have been taken since), so a stack {@link Inventory#addItem(Item)} refuses
+     * simply stays out of the inventory and is reported as not restored.
+     *
+     * @return how many of the units are in the inventory
+     */
+    private static int spill(Inventory inv, Item template, int itemId, int quantity) {
+        int slotMax = slotMaxFor(itemId);
+        if (slotMax <= 0) {
+            return 0;
+        }
+        if (!stacks(itemId, template)) {
+            Item returned = new Item(itemId, (short) 0, (short) quantity, template.getPetId());
+            returned.setExpiration(template.getExpiration());
+            returned.setOwner(template.getOwner());
+            returned.setGiftFrom(template.getGiftFrom());
+            copyFlag(returned, template);
+            return inv.addItem(returned) == -1 ? 0 : quantity;
+        }
+        int restored = 0;
+        while (quantity > 0) {
+            short stack = (short) Math.min(quantity, slotMax);
+            Item returned = new Item(itemId, (short) 0, stack, template.getPetId());
+            returned.setExpiration(template.getExpiration());
+            returned.setOwner(template.getOwner());
+            returned.setGiftFrom(template.getGiftFrom());
+            copyFlag(returned, template);
+            if (inv.addItem(returned) == -1) {
+                break;   // no free slot: the rest stays out of the inventory
+            }
+            quantity -= stack;
+            restored += stack;
+        }
+        return restored;
+    }
+
+    /**
+     * Adds one held instance back into its inventory.
+     *
+     * @return false when the inventory has no room for it and the instance is lost
+     */
+    private static boolean putBack(Inventory inv, Item item) {
+        inv.lockInventory();
+        try {
+            return inv.addItem(item) != -1;
+        } finally {
+            inv.unlockInventory();
+        }
+    }
+
+    /**
+     * Strikes one held instance out of the bot's inventory and ledger together, for value the world destroyed
+     * while the bot held it: a cursed scroll is the case this exists for ({@code scrollEquipWithId} returns null
+     * after destroying the equip), and anything else that removes an item the bot already accounted for belongs
+     * here too. The ledger debit means the bot no longer holds what it was credited for; if the item came from
+     * its durable row rather than this run's credits, {@link #hasUnpersistedDebit(Character)} reports it and
+     * {@code BotStore} records the loss instead of a restart restoring it.
+     *
+     * <p>Distinct from {@link #payOutItem(Character, Item, Character, Point)}, which hands an instance to
+     * someone else: nothing leaves the bot here, the value is gone.
+     *
+     * @return true when the bot held the instance and it is now out of both the inventory and the ledger
+     */
+    public static boolean destroyHeldItem(Character bot, Item item) {
+        if (item == null) {
+            return false;
+        }
+        Inventory inv = bot.getInventory(item.getInventoryType());
+        Item held = null;
+        inv.lockInventory();
+        try {
+            for (Item candidate : inv.list()) {
+                if (candidate == item) {
+                    held = candidate;
+                    break;
+                }
+            }
+            if (held == null) {
+                return false;   // the bot does not hold this instance: nothing to strike out
+            }
+            inv.removeSlot(held.getPosition());
+        } finally {
+            inv.unlockInventory();
+        }
+        Item gone = held;   // the scan's local is reassigned, a lambda needs one that is not
+        mutate(bot, ledger -> ledger.addItem(gone.getItemId(), -gone.getQuantity()));
+        return true;
+    }
+
+    /**
+     * True when this bot holds less than its stored row claims: a debit - a payout, a purchase, mesos handed to
+     * a trade partner, an item destroyed while held - that no durable write has recorded yet.
+     *
+     * <p>Such a debit must never be forgotten. The row it came from still claims that value, so a restart would
+     * restore it on top of what the other side already holds, minting the same value twice. {@code BotStore}
+     * therefore treats this as "the bot is dirty": it retries the write instead of settling the deltas onto the
+     * map, and it writes the holdings even when they could not be read, because leaving the stale row alone is
+     * the minting direction while overwriting it is the destroying one.
+     *
+     * <p>With this, every read of a ledger (this predicate, {@link #hasUnpersistedItemDebit(Character)},
+     * {@link #ledgerStamp(Character)}) and every write ({@link #mutate(Character, Mutation)},
+     * {@link #discardIfUnchanged(Character, int)}, {@link #settle(Character)}) happens under the {@code ledgers}
+     * monitor, so no read can miss a delta and no read-then-act pair is left for one to slip through: the same
+     * interleaving is impossible by construction at the capture, the discard and the read, not merely unlikely.
+     */
+    public static boolean hasUnpersistedDebit(Character bot) {
+        // The lookup and the read hold the same monitor a delta is applied under (see mutate), so a delta can
+        // neither be missed by this read nor land in a ledger this read has already let go of.
+        synchronized (ledgers) {
+            Ledger ledger = ledgers.get(bot);
+            return ledger != null && ledger.hasDebit();
+        }
+    }
+
+    /**
+     * True when what the bot holds less of is items, not mesos: only the stored item rows are stale then, so
+     * only they have to be taken down by a write that cannot be completed. A meso-only debit is recorded by the
+     * row itself and leaves the bot's stored items alone.
+     */
+    static boolean hasUnpersistedItemDebit(Character bot) {
+        synchronized (ledgers) {   // same monitor as the deltas: see mutate
+            Ledger ledger = ledgers.get(bot);
+            return ledger != null && ledger.hasItemDebit();
+        }
+    }
+
+    /**
+     * How many times this bot's deltas have changed, 0 when it has no ledger at all. A writer reads this before
+     * it captures the state to write and again once that row is committed: a different value means the bot gave
+     * value away - or took value in - while the write was in flight, so the row it just wrote does not record
+     * that change and the deltas must stay for a later write instead of being discarded with it.
+     */
+    static int ledgerStamp(Character bot) {
+        synchronized (ledgers) {   // same monitor as the deltas: see mutate
+            Ledger ledger = ledgers.get(bot);
+            return ledger == null ? 0 : ledger.stamp();
+        }
+    }
+
+    /**
+     * Forgets a bot's deltas only while they are exactly the ones a write recorded - the value they stand for is
+     * durable, so a later settle must not hand the same value to the world a second time - and keeps them when a
+     * delta arrived after that write, because that delta is in no row and dropping it here would lose it.
+     *
+     * <p>The comparison and the removal happen under the same monitor the deltas are applied under, the map's
+     * (see {@link #mutate(Character, Mutation)}), which is what makes them one step: a discard that only
+     * synchronized on the Ledger could still remove the entry a mutator is about to write to, and that delta
+     * would go nowhere. A caller with no captured stamp to compare against (a bot whose state has no stored row)
+     * short-circuits this call rather than passing a stamp that could match by accident.
+     *
+     * @param captured the stamp a write read before capturing the bot's state; a ledger whose stamp still equals
+     *                 it holds only deltas that write recorded.
+     * @return false when the ledger was kept because it changed since {@code captured}: the deltas must be
+     *         treated as unrecorded.
+     */
+    static boolean discardIfUnchanged(Character bot, int captured) {
+        synchronized (ledgers) {
+            Ledger ledger = ledgers.get(bot);
+            if (ledger == null) {
+                return true;   // no deltas left to keep
+            }
+            if (ledger.stamp() != captured) {
+                return false;
+            }
+            ledgers.remove(bot);
+            return true;
+        }
     }
 
     /**
@@ -338,15 +648,19 @@ public final class BotHoldings {
      * until it has somewhere to settle onto.
      */
     public static void settle(Character bot) {
-        Ledger ledger = ledgers.get(bot);
+        MapleMap map = bot.getMap();
+        if (map == null) {
+            return;   // nowhere to drop it: the ledger stays until the bot has a map to leave on
+        }
+        Ledger ledger;
+        synchronized (ledgers) {
+            // Taken out whole, for the same reason a discard compares under this monitor: a delta landing here
+            // instead of in a ledger that is already leaving would be dropped with it and handed to nobody.
+            ledger = ledgers.remove(bot);
+        }
         if (ledger == null) {
             return;
         }
-        MapleMap map = bot.getMap();
-        if (map == null) {
-            return;
-        }
-        ledgers.remove(bot);
 
         for (Map.Entry<Integer, Integer> itemDelta : ledger.items().entrySet()) {
             int itemId = itemDelta.getKey();

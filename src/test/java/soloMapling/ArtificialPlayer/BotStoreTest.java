@@ -4,9 +4,13 @@ import client.BotClient;
 import client.Character;
 import client.Job;
 import client.SkinColor;
+import client.inventory.Inventory;
+import client.inventory.Equip;
 import client.inventory.InventoryType;
+import client.inventory.Item;
 import org.junit.jupiter.api.Test;
 import server.Trade;
+import server.maps.MapItem;
 import server.maps.MapleMap;
 
 import java.awt.Point;
@@ -17,12 +21,16 @@ import java.sql.SQLException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -381,13 +389,469 @@ class BotStoreTest {
     }
 
     @Test
+    void aDebitIsWrittenInsteadOfBeingLeftForARestartToRestore() throws SQLException {
+        Character bot = newBot(BOT_ID, "Indebted");
+        MapleMap map = mock(MapleMap.class);
+        bot.setMap(map);
+        // What this bot holds it got before this run: the mesos never came through the ledger, so the ledger
+        // still measures everything it gives away from here on as a debit against its stored row.
+        bot.gainMeso(910_000, false, false, false);
+        assertTrue(BotHoldings.spendMeso(bot, 3_000), "a stored bot spends out of what its row gave it");
+        assertTrue(BotHoldings.hasUnpersistedDebit(bot), "its row still claims the mesos it spent");
+
+        // The bot's stored holdings cannot be read at all, which makes an ordinary write fail. That is the
+        // right answer for a bot that merely earned - the test above settles those onto its map - but a bot
+        // that gave value away is the other direction: forgetting the debit hands it back at the next boot
+        // while the other side still holds it. The write is what has to happen, so it goes through here.
+        Map<Integer, Object> durable = new HashMap<>();   // what a restart would read back
+        Connection con = committingPool(durable);
+        BotStore.markHoldingsUnreadableForTest(BOT_ID, true);
+        BotStore.useConnectionSourceForTest(() -> con);
+        try {
+            BotStore.saveThenSettle(bot);
+        } finally {
+            BotStore.useConnectionSourceForTest(null);
+            BotStore.markHoldingsUnreadableForTest(BOT_ID, false);
+        }
+
+        assertAll(
+                () -> assertEquals(907_000, durable.get(updateColumns().indexOf("Meso") + 1),
+                        "the row a restart reads has to carry the debit, not the mesos the bot gave away"),
+                () -> assertFalse(BotHoldings.hasUnpersistedDebit(bot),
+                        "the write records it, so there is nothing left to forget"),
+                () -> verify(map, never()).spawnMesoDrop(anyInt(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyByte(),
+                        org.mockito.ArgumentMatchers.anyShort()));
+    }
+
+    @Test
+    void aDebitThatWillNotWriteTakesTheStoredClaimDownWithIt() throws SQLException {
+        Character bot = newBot(BOT_ID, "Chips");
+        MapleMap map = mock(MapleMap.class);
+        bot.setMap(map);
+        int chip = 2_000_000;
+        bot.getInventory(InventoryType.USE).addItem(new Item(chip, (short) 0, (short) 10, -1));
+        when(map.spawnItemDropNoExpire(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.anyBoolean())).thenReturn(mock(MapItem.class));
+
+        assertEquals(3, BotHoldings.payOut(bot, chip, 3, newBot(PLAYER_ID, "Winner"), new Point(30, 40)));
+        assertTrue(BotHoldings.hasUnpersistedDebit(bot), "the chips came out of stacks its row still claims");
+
+        // A store that will not take the write at all, on the write or on the retry, while the item tables
+        // still answer. The stored claim cannot be corrected, so it is taken down: restoring it at the next
+        // boot would hand the bot three chips on top of the three the winner is holding. The bot's own items
+        // go with the claim, which is the only direction to lose in - a value minted this way has no later
+        // write that could take it back.
+        Map<Integer, Object> cleared = new HashMap<>();
+        Connection con = mock(Connection.class);
+        PreparedStatement spare = passive();
+        when(con.prepareStatement(anyString())).thenReturn(spare);
+        when(con.prepareStatement(anyString(), anyInt())).thenReturn(spare);
+        PreparedStatement wipe = recordingInto(cleared);
+        when(con.prepareStatement(org.mockito.ArgumentMatchers.contains("DELETE `inventoryitems`")))
+                .thenReturn(wipe);
+        PreparedStatement refusing = deadlocked();
+        when(con.prepareStatement(BotStore.INSERT_ROW)).thenReturn(refusing);
+        BotStore.useConnectionSourceForTest(() -> con);
+        try {
+            BotStore.saveThenSettle(bot);
+        } finally {
+            BotStore.useConnectionSourceForTest(null);
+        }
+
+        assertAll(
+                () -> verify(con).commit(),
+                () -> assertEquals(bot.getId(), cleared.get(2),
+                        "the stored claim that was taken down is this bot's own"),
+                () -> assertFalse(BotHoldings.hasUnpersistedDebit(bot),
+                        "the store holds a record of the debit now, so nothing may settle or restore it later"));
+    }
+
+    @Test
+    void aSnapshotDescribesTheItemsAsTheyWereRatherThanAsTheyAre() throws SQLException {
+        Character bot = newBot(BOT_ID, "House");
+        int chip = 2_000_000;
+        Item chips = new Item(chip, (short) 0, (short) 4, -1);
+        bot.getInventory(InventoryType.USE).addItem(chips);
+        short slot = chips.getPosition();
+
+        // A payout empties part of the stack while the sweep is writing it. ItemFactory binds each item's
+        // state when its statement runs, after the tab's lock is long gone, so a snapshot that keeps the item
+        // itself writes down what the item has since become - a row claiming chips the house handed to a
+        // winner, which the next boot restores to the house as a second copy. The row has to carry the state
+        // the chips were in at the moment the snapshot was taken; the change is the ledger's business.
+        Map<Integer, Object> boundItems = new HashMap<>();
+        Connection con = mock(Connection.class);
+        PreparedStatement spare = passive();
+        PreparedStatement statement = passive();
+        doAnswer(call -> {
+            // the race: the stack changes after the snapshot was taken but before the item rows are bound,
+            // which is the window the delete of the old rows leaves open
+            chips.setQuantity((short) 1);
+            return 0;
+        }).when(statement).executeUpdate();
+        when(con.prepareStatement(anyString())).thenReturn(spare);
+        when(con.prepareStatement(anyString(), anyInt())).thenReturn(spare);
+        PreparedStatement row = accepting();
+        when(con.prepareStatement(BotStore.UPDATE_ROW)).thenReturn(row);
+        PreparedStatement itemStatement = recordingInto(boundItems);
+        when(con.prepareStatement(org.mockito.ArgumentMatchers.contains("INSERT INTO `inventoryitems`"),
+                anyInt())).thenReturn(itemStatement);
+        when(con.prepareStatement(org.mockito.ArgumentMatchers.contains("DELETE `inventoryitems`")))
+                .thenReturn(statement);
+        BotStore.useConnectionSourceForTest(() -> con);
+        try {
+            BotStore.save(bot);
+        } finally {
+            BotStore.useConnectionSourceForTest(null);
+        }
+
+        assertAll(
+                () -> assertEquals(chip, boundItems.get(4), "the row has to carry the item the snapshot saw"),
+                () -> assertEquals((int) slot, boundItems.get(6), "in the slot it was in"),
+                () -> assertEquals(4, boundItems.get(7),
+                        "with the quantity it had, not what the payout left behind"));
+    }
+
+    @Test
+    void theStoredEquipmentKeepsTheRingIdTheInsertBinds() throws SQLException {
+        Character bot = newBot(BOT_ID, "Ringed");
+        // An Equip cannot be built in this run - its constructor asks the item data for the equip level - so
+        // the held item and the copy the snapshot takes are both doubles. What the test pins is that the ring
+        // id crosses from one to the other: the equipment insert binds it, and it is not in the item insert.
+        Equip held = mock(Equip.class);
+        Equip copied = mock(Equip.class);
+        when(held.copy()).thenReturn(copied);
+        when(held.getRingId()).thenReturn(40_000_000);
+        int[] crossed = {-1};
+        doAnswer(call -> {
+            crossed[0] = call.getArgument(0);
+            return null;
+        }).when(copied).setRingId(anyInt());
+        when(copied.getRingId()).thenAnswer(call -> crossed[0]);
+        bot.getInventory(InventoryType.EQUIP).addItem(held);
+        Map<Integer, Object> boundRing = new HashMap<>();
+        Connection con = mock(Connection.class);
+        PreparedStatement spare = passive();
+        when(con.prepareStatement(anyString())).thenReturn(spare);
+        when(con.prepareStatement(anyString(), anyInt())).thenReturn(spare);
+        PreparedStatement rowStatement = accepting();
+        when(con.prepareStatement(BotStore.UPDATE_ROW)).thenReturn(rowStatement);
+        ResultSet keys = mock(ResultSet.class);
+        when(keys.next()).thenReturn(true);
+        when(keys.getInt(1)).thenReturn(4_242);
+        PreparedStatement itemStatement = passive();
+        when(itemStatement.getGeneratedKeys()).thenReturn(keys);
+        when(con.prepareStatement(org.mockito.ArgumentMatchers.contains("INSERT INTO `inventoryitems`"),
+                anyInt())).thenReturn(itemStatement);
+        PreparedStatement equipment = recordingInto(boundRing);
+        when(con.prepareStatement(org.mockito.ArgumentMatchers.contains("INSERT INTO `inventoryequipment`")))
+                .thenReturn(equipment);
+        BotStore.useConnectionSourceForTest(() -> con);
+        try {
+            BotStore.save(bot);
+        } finally {
+            BotStore.useConnectionSourceForTest(null);
+        }
+
+        assertAll(
+                () -> assertEquals(40_000_000, boundRing.get(23),
+                        "the row a restart reads has to keep the ring the instance was wearing"),
+                () -> verify(copied).setRingId(40_000_000));
+    }
+
+    @Test
+    void aChangeTheRowMissedKeepsItsDeltasInsteadOfBeingForgotten() throws SQLException {
+        Character bot = newBot(BOT_ID, "Racer");
+        int chip = 2_000_000;
+        Item chips = new Item(chip, (short) 0, (short) 10, -1);
+        bot.getInventory(InventoryType.USE).addItem(chips);
+
+        // The write names the state of the bot when it was captured, so a change that lands after that point
+        // is not in the row: it lives in the ledger, which is the bot's holdings minus what the row claims.
+        // Dropping the ledger here - the way a plain "the write went through" does - loses the only record of
+        // it, and the next boot restores the ten chips the bot has already given away.
+        Map<Integer, Object> durable = new HashMap<>();
+        Map<Integer, Object> pending = new HashMap<>();
+        Map<Integer, Object> boundedItems = new HashMap<>();
+        Connection con = mock(Connection.class);
+        PreparedStatement spare = passive();
+        when(con.prepareStatement(anyString())).thenReturn(spare);
+        when(con.prepareStatement(anyString(), anyInt())).thenReturn(spare);
+        PreparedStatement row = recordingInto(pending);
+        when(row.executeUpdate()).thenReturn(1);
+        when(con.prepareStatement(BotStore.UPDATE_ROW)).thenReturn(row);
+        PreparedStatement itemStatement = recordingInto(boundedItems);
+        doAnswer(call -> {
+            // the chips are destroyed while the sweep is writing the row that still describes them
+            assertTrue(BotHoldings.destroyHeldItem(bot, chips), "the bot holds the instance being destroyed");
+            return 0;
+        }).when(itemStatement).executeUpdate();
+        when(con.prepareStatement(org.mockito.ArgumentMatchers.contains("INSERT INTO `inventoryitems`"),
+                anyInt())).thenReturn(itemStatement);
+        doAnswer(call -> {
+            durable.putAll(pending);
+            pending.clear();
+            return null;
+        }).when(con).commit();
+        doAnswer(call -> {
+            pending.clear();
+            return null;
+        }).when(con).rollback();
+
+        BotStore.useConnectionSourceForTest(() -> con);
+        try {
+            BotStore.saveAll(List.of(bot));
+        } finally {
+            BotStore.useConnectionSourceForTest(null);
+        }
+
+        assertAll(
+                () -> assertEquals(10, boundedItems.get(7),
+                        "the write describes the moment it captured, so it is one change behind"),
+                () -> assertTrue(durable.get(updateColumns().indexOf("Meso") + 1) != null,
+                        "the row itself was written"),
+                () -> assertTrue(BotHoldings.hasUnpersistedDebit(bot),
+                        "the change the row missed is a debit the next write still has to carry"));
+    }
+
+    @Test
+    void theLastWriteOfTheProcessRetriesADebitItCouldNotWriteAtFirst() throws SQLException {
+        Character bot = newBot(BOT_ID, "Closing");
+        bot.gainMeso(910_000, false, false, false);
+        assertTrue(BotHoldings.spendMeso(bot, 3_000), "it spends out of what its row gave it");
+        assertTrue(BotHoldings.hasUnpersistedDebit(bot));
+
+        // Shutdown is the process's last chance to write: the bot's despawn path is not the only place a debit
+        // can be lost, so the sweep that closes the server has to give it the same treatment. The pool below
+        // refuses the sweep's own attempts - a contention that clears - and then takes the retry.
+        Map<Integer, Object> durable = new HashMap<>();
+        Connection good = committingPool(durable);
+        Connection refusing = mockPool(deadlocked());
+        int[] attempts = {0};
+        BotStore.useConnectionSourceForTest(() -> attempts[0]++ < 4 ? refusing : good);
+        try {
+            BotStore.settleAndSaveAll(List.of(bot));
+        } finally {
+            BotStore.useConnectionSourceForTest(null);
+        }
+
+        assertAll(
+                () -> assertEquals(907_000, durable.get(updateColumns().indexOf("Meso") + 1),
+                        "the last row of the process has to carry the debit"),
+                () -> assertFalse(BotHoldings.hasUnpersistedDebit(bot),
+                        "the retry recorded it, so nothing is left for the next boot to restore"),
+                () -> verify(good).commit());
+    }
+
+    @Test
+    void aCreditCapturedIntoTheRowIsNotHandedToTheWorldAsWell() throws SQLException {
+        Character bot = newBot(BOT_ID, "Earner");
+        MapleMap map = mock(MapleMap.class);
+        bot.setMap(map);
+
+        // A creditor that runs while this bot is being despawned, but before the write has captured anything:
+        // a sale in a bot-owned shop, a trade that completes as the window is closed. The credit is part of the
+        // state the row is captured from, so the row carries it and the ledger has to let it go - settling it
+        // as well would leave the value in the row and on the floor at the same time.
+        Map<Integer, Object> durable = new HashMap<>();
+        Connection con = committingPool(durable);
+        boolean[] credited = {false};
+        BotStore.useConnectionSourceForTest(() -> {
+            if (!credited[0]) {
+                credited[0] = true;
+                assertTrue(BotHoldings.grantMeso(bot, 4_000));
+            }
+            return con;
+        });
+        try {
+            BotStore.saveThenSettle(bot);
+        } finally {
+            BotStore.useConnectionSourceForTest(null);
+        }
+        assertAll(
+                () -> assertEquals(4_000, durable.get(updateColumns().indexOf("Meso") + 1),
+                        "the credit landed before the capture, so the row is what holds it"),
+                () -> assertEquals(0, BotHoldings.ledgerStamp(bot),
+                        "a delta the row already holds must not be kept for a settle to hand out a second time"),
+                () -> verify(map, never()).spawnMesoDrop(4_000, bot.getPosition(), bot, bot, true, (byte) 2,
+                        (short) 0));
+    }
+
+    @Test
+    void aMesoDebitInTheCaptureWindowIsMintedBackByTheRow() throws SQLException {
+        Character bot = newBot(BOT_ID, "Spender");
+        MapleMap map = mock(MapleMap.class);
+        bot.setMap(map);
+        // What it holds it got before this run: the thousand mesos never came through the ledger, so anything
+        // it spends from here on is a debit against what its stored row claims.
+        bot.gainMeso(1_000, false, false, false);
+
+        // The spend lands after the write read the row's scalars (of(bot) bound the 1_000) but before its
+        // capture ended, so that attempt would describe two moments. Accepting it commits a row claiming the
+        // thousand, and the caller - seeing a stamp that moved - then keeps the deltas, so the debit is in no
+        // row and a restart restores the thousand on top of the three hundred the counterparty durably holds:
+        // a mint. The bracketed capture refuses that row instead (rollback below) and commits exactly one, the
+        // one built from the 700. What distinguishes the two is therefore which rows get committed at all, so
+        // the committed values are recorded here and asserted below - not just where they ended up.
+        Map<Integer, Object> durable = new HashMap<>();
+        Map<Integer, Object> pending = new HashMap<>();
+        List<Object> committedMeso = new ArrayList<>();
+        Connection con = mock(Connection.class);
+        PreparedStatement spare = passive();
+        when(con.prepareStatement(anyString())).thenReturn(spare);
+        when(con.prepareStatement(anyString(), anyInt())).thenReturn(spare);
+        PreparedStatement row = recordingInto(pending);
+        boolean[] spent = {false};
+        when(row.executeUpdate()).thenAnswer(call -> {
+            if (!spent[0]) {
+                spent[0] = true;
+                assertTrue(BotHoldings.spendMeso(bot, 300), "the bot spends out of what its row claims");
+            }
+            return 1;
+        });
+        when(con.prepareStatement(BotStore.UPDATE_ROW)).thenReturn(row);
+        doAnswer(call -> {
+            committedMeso.add(pending.get(updateColumns().indexOf("Meso") + 1));
+            durable.putAll(pending);
+            pending.clear();
+            return null;
+        }).when(con).commit();
+        doAnswer(call -> {
+            pending.clear();
+            return null;
+        }).when(con).rollback();
+        BotStore.useConnectionSourceForTest(() -> con);
+        try {
+            BotStore.saveThenSettle(bot);
+        } finally {
+            BotStore.useConnectionSourceForTest(null);
+        }
+
+        assertAll(
+                () -> assertEquals(List.of(700), committedMeso,
+                        "no row claiming the mesos the bot spent may be committed at all"),
+                () -> assertEquals(700, durable.get(updateColumns().indexOf("Meso") + 1),
+                        "the row a restart reads must not claim the mesos the bot spent while that same row was"
+                                + " being captured"),
+                () -> assertFalse(BotHoldings.hasUnpersistedDebit(bot),
+                        "the retried capture records the debit, so there is nothing left to forgive"),
+                () -> verify(map, never()).spawnMesoDrop(anyInt(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyByte(),
+                        org.mockito.ArgumentMatchers.anyShort()));
+    }
+
+    @Test
+    void aMesoCreditInTheCaptureWindowIsCapturedRatherThanSettled() throws SQLException {
+        Character bot = newBot(BOT_ID, "Earner");
+        MapleMap map = mock(MapleMap.class);
+        bot.setMap(map);
+        bot.gainMeso(1_000, false, false, false);
+
+        // Same window, the other direction: a bot-owned shop sale lands after the row's scalars were read and
+        // before the capture ended. A capture that is accepted anyway is two moments, and whichever way the
+        // caller then goes is wrong - dropping the delta destroys the sale, settling it hands out a credit the
+        // row holds. The capture is retried instead, so the row carries it.
+        Map<Integer, Object> durable = new HashMap<>();
+        Map<Integer, Object> pending = new HashMap<>();
+        Connection con = mock(Connection.class);
+        PreparedStatement spare = passive();
+        when(con.prepareStatement(anyString())).thenReturn(spare);
+        when(con.prepareStatement(anyString(), anyInt())).thenReturn(spare);
+        PreparedStatement row = recordingInto(pending);
+        boolean[] credited = {false};
+        when(row.executeUpdate()).thenAnswer(call -> {
+            if (!credited[0]) {
+                credited[0] = true;
+                assertTrue(BotHoldings.grantMeso(bot, 400));
+            }
+            return 1;
+        });
+        when(con.prepareStatement(BotStore.UPDATE_ROW)).thenReturn(row);
+        doAnswer(call -> {
+            durable.putAll(pending);
+            pending.clear();
+            return null;
+        }).when(con).commit();
+        doAnswer(call -> {
+            pending.clear();
+            return null;
+        }).when(con).rollback();
+        BotStore.useConnectionSourceForTest(() -> con);
+        try {
+            BotStore.saveThenSettle(bot);
+        } finally {
+            BotStore.useConnectionSourceForTest(null);
+        }
+
+        assertAll(
+                () -> assertEquals(1_400, durable.get(updateColumns().indexOf("Meso") + 1),
+                        "the retried capture takes the credit in, so the row a restart reads holds it"),
+                () -> assertEquals(0, BotHoldings.ledgerStamp(bot),
+                        "and the ledger has nothing left to hand to the world a second time"),
+                () -> verify(map, never()).spawnMesoDrop(anyInt(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyByte(),
+                        org.mockito.ArgumentMatchers.anyShort()));
+    }
+
+    @Test
+    void theLastWriteOfTheProcessRetriesAChangeItMissed() throws SQLException {
+        Character bot = newBot(BOT_ID, "Earner");
+        MapleMap map = mock(MapleMap.class);
+        bot.setMap(map);
+
+        // The credit lands after the state was captured but before that write commits, so the row does not
+        // carry it. Mid-run the deltas would simply wait for the next sweep; this is the shutdown sweep and
+        // there is no next write, so waiting is losing them.
+        Map<Integer, Object> durable = new HashMap<>();
+        Map<Integer, Object> pending = new HashMap<>();
+        boolean[] credited = {false};
+        Connection con = mock(Connection.class);
+        PreparedStatement spare = passive();
+        when(con.prepareStatement(anyString())).thenReturn(spare);
+        PreparedStatement row = recordingInto(pending);
+        when(row.executeUpdate()).thenReturn(1);
+        when(con.prepareStatement(BotStore.UPDATE_ROW)).thenReturn(row);
+        doAnswer(call -> {
+            durable.putAll(pending);
+            pending.clear();
+            if (!credited[0]) {
+                credited[0] = true;
+                assertTrue(BotHoldings.grantMeso(bot, 4_000));
+            }
+            return null;
+        }).when(con).commit();
+        doAnswer(call -> {
+            pending.clear();
+            return null;
+        }).when(con).rollback();
+        BotStore.useConnectionSourceForTest(() -> con);
+        try {
+            BotStore.settleAndSaveAll(List.of(bot));
+        } finally {
+            BotStore.useConnectionSourceForTest(null);
+        }
+
+        assertAll(
+                () -> assertEquals(4_000, durable.get(updateColumns().indexOf("Meso") + 1),
+                        "the last write of the process has to record the credit it missed, not keep waiting"),
+                () -> assertEquals(0, BotHoldings.ledgerStamp(bot),
+                        "the retry recorded it, so nothing is left for the next boot to restore"));
+    }
+
+    @Test
     void durableHoldingsAreNotHandedToTheWorldAsWell() {
         Character bot = newBot(BOT_ID, "Durable");
         MapleMap map = mock(MapleMap.class);
         bot.setMap(map);
         BotHoldings.grantMeso(bot, 5_000);
 
-        BotHoldings.discard(bot);
+        BotHoldings.discardIfUnchanged(bot, BotHoldings.ledgerStamp(bot));
         BotHoldings.settle(bot);
 
         verify(map, never()).spawnMesoDrop(org.mockito.ArgumentMatchers.anyInt(),
@@ -451,6 +915,31 @@ class BotStoreTest {
         BotStore.saveThenSettle(bot);
 
         verify(map).spawnMesoDrop(4_000, bot.getPosition(), bot, bot, true, (byte) 2, (short) 0);
+    }
+
+    @Test
+    void theHoldingsSnapshotIsTakenUnderTheTabsOwnLock() throws SQLException {
+        Character bot = newBot(BOT_ID, "Racer");
+        LockedViewInventory use = new LockedViewInventory(bot, InventoryType.USE, (byte) 96);
+        use.addItem(new Item(2_000_000, (short) 0, (short) 1, -1));
+        bot.setInventory(InventoryType.USE, use);
+
+        // A casino pays a pot out of the house's own inventory on a thread of its own, seconds of deliberate
+        // sleeps and all, while the house keeps ticking and the sweep keeps saving it. Inventory.list() hands
+        // out a view of the tab's live map rather than a copy, so reading it without the tab's lock is a race,
+        // and an unlocked iteration can also throw part way through - which in the despawn path flips the bot
+        // onto the failed-save route. This tab refuses to be read by a thread that is not holding its lock, so
+        // the save below only gets through if it reads the tab while it holds it. What the read has to be worth
+        // is pinned separately: aSnapshotDescribesTheItemsAsTheyWereRatherThanAsTheyAre for the row describing
+        // one moment, aChangeTheRowMissedKeepsItsDeltasInsteadOfBeingForgotten for a change it missed.
+        Connection con = mockPool(accepting());
+        BotStore.useConnectionSourceForTest(() -> con);
+        try {
+            assertDoesNotThrow(() -> BotStore.save(bot),
+                    "the sweep has to read each tab while it holds that tab");
+        } finally {
+            BotStore.useConnectionSourceForTest(null);
+        }
     }
 
     @Test
@@ -568,9 +1057,38 @@ class BotStoreTest {
         Deque<PreparedStatement> queue = new ArrayDeque<>(Arrays.asList(rows));
         PreparedStatement spare = passive();
         when(con.prepareStatement(anyString())).thenReturn(spare);
+        // The item rows are inserted through the generated-keys overload, which is a statement like any other.
+        when(con.prepareStatement(anyString(), anyInt())).thenReturn(spare);
         // Declared last on purpose: with two matchers that both match, the last stubbing wins.
         when(con.prepareStatement(BotStore.INSERT_ROW))
                 .thenAnswer(call -> queue.size() > 1 ? queue.poll() : queue.peek());
+        return con;
+    }
+
+    /**
+     * A pool whose row statement answers that it updated a row and keeps what it bound, so a test can read
+     * back what a restart would: the values only land in {@code durable} once the transaction commits.
+     */
+    private static Connection committingPool(Map<Integer, Object> durable) throws SQLException {
+        Connection con = mock(Connection.class);
+        PreparedStatement spare = passive();
+        when(con.prepareStatement(anyString())).thenReturn(spare);
+        // The item insert is prepared through the generated-keys overload; an unstubbed call there returns
+        // null and the write dies with a NullPointerException instead of the failure a test means to stage.
+        when(con.prepareStatement(anyString(), anyInt())).thenReturn(spare);
+        Map<Integer, Object> pending = new HashMap<>();
+        PreparedStatement row = recordingInto(pending);
+        when(row.executeUpdate()).thenReturn(1);
+        when(con.prepareStatement(BotStore.UPDATE_ROW)).thenReturn(row);
+        doAnswer(call -> {
+            durable.putAll(pending);
+            pending.clear();
+            return null;
+        }).when(con).commit();
+        doAnswer(call -> {
+            pending.clear();
+            return null;
+        }).when(con).rollback();
         return con;
     }
 
@@ -584,6 +1102,26 @@ class BotStoreTest {
         when(rows.next()).thenReturn(false);
         when(ps.executeQuery()).thenReturn(rows);
         return ps;
+    }
+
+    /**
+     * A tab that will not hand out its live view to a caller that is not already holding its lock: that view is
+     * the tab's own map, so reading it outside the lock is not a snapshot, it is a race with whoever is paying
+     * a pot out of the same tab.
+     */
+    private static class LockedViewInventory extends Inventory {
+
+        LockedViewInventory(Character owner, InventoryType type, byte slotLimit) {
+            super(owner, type, slotLimit);
+        }
+
+        @Override
+        public Collection<Item> list() {
+            if (!((ReentrantLock) lock).isHeldByCurrentThread()) {
+                throw new IllegalStateException("the live view of a tab was read without holding its lock");
+            }
+            return super.list();
+        }
     }
 
     @FunctionalInterface
