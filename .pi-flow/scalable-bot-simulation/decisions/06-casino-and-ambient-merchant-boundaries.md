@@ -18,6 +18,11 @@ The three casino policies below are decided; their implementation is deliberatel
 analysis stays in ticket 10 (`../issues/10-value-path-audit.md`, findings 1-3)
 so the work can be picked up without re-deriving it.
 
+> **Update (2026-10-17):** the deferral is lifted. The three casino policies are implemented as ticket 12
+> (`../issues/12-casino-pot-payout.md`), landed in `1dfc85a4589d7451820fbc541302f16fef2d3390` (`Mark
+> fabricated bot drops as props and pay casino pots from the house`). The paragraph above and the numbered
+> policies below are kept as the record of the decision; read them as history, not as open work.
+
 1. **A winning hand is paid from the collected bets, not from a faucet.** `payWinner`
    (`BlackjackDealerBot.java:560-575`) currently conjures one drop per bet unit through
    `DropCommands.botThrowItemToOwner` -> `BotLogic.generateCleanItem`, while the winner's own stake
@@ -67,6 +72,11 @@ fix would be unverifiable. Recorded as a boundary, no code.
 - `server/maps/HiredMerchant.java`: the bot-owner dead write removed from `botBuy` and `buy` (the
   `addMerchantMesos` bank that targets a non-existent row).
 - Ticket 10 gains a closing-actions line pointing at this record.
-- Casino findings 1-3: analysis retained, implementation deferred.
+- Casino findings 1-3: **implemented** as ticket 12 (`../issues/12-casino-pot-payout.md`, commit
+  `1dfc85a4589d7451820fbc541302f16fef2d3390`) —
+  the deferral recorded in the Answer above is lifted. Payouts now come from the pot (a winning hand is paid
+  out of the collected bets, capped by the house's stock), a conjured prop is never a value item (per
+  drop-instance provenance flag, not an id list), and the 1.5x blackjack bonus is house-funded from the
+  dealer's own ledgered holdings.
 - `PlayerShop`'s bot-owner credit (already fixed in ticket 10) stays as the contrast: a stall's sale
   proceeds *are* value the bot receives, so they go through `BotHoldings.noteMesoEarned`.

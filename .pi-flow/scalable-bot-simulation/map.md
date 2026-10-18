@@ -19,6 +19,8 @@ A decision-ready investigation route for persistent finite-resource bots with ap
 - [Sparse vs crowded cost](decisions/05-workload-cost.md): sparse cost is background O(N) wakeups, crowded cost is active simulation plus transitions; within-active ranking needs measurement.
 - [Offscreen durability boundary](decisions/03-offscreen-durability.md): identity/progression/commitments persist exactly; movement/combat presentation reconstructs; holdings/restart/trade-travel rules need decisions.
 - [Offscreen reward capacity](decisions/04-reward-capacity.md): map hunting-capacity budgets are the basis; no reward-quota mechanism exists and regional quotas would be new construction.
+- [Casino & ambient merchant boundaries](decisions/06-casino-and-ambient-merchant-boundaries.md): casino payouts come from the pot and a conjured prop is never a value item (implemented, issue 12); a bot merchant's income is a sink by design; event instances recorded, not hardened.
+- [Drop-game & NX faucets](decisions/07-drop-game-and-nx-faucets.md): value a bot hands out must come from its own holdings — the drop-game paid prize and the NX gift-card mints are defects (recorded and deferred), while the starter handout and pantomime sprays are by design.
 
 ## Not yet specified
 

@@ -76,7 +76,7 @@ These are recorded, not fixed: each is either ambient attraction behaviour or ne
 
 ## Policy decisions recorded (grilling session, 2026-10-17)
 
-The owner reviewed findings 1-5 in a grilling pass. Findings 1-3 (the casino and conjure provenance) are **deferred** - not important now - but the policy for when that work resumes is settled, so the three answers are recorded here rather than re-litigated:
+The owner reviewed findings 1-5 in a grilling pass. Findings 1-3 (the casino and conjure provenance) became `../decisions/06-casino-and-ambient-merchant-boundaries.md` and are now **implemented** by ticket 12 (`/root/SoloMapling` commit `1dfc85a4589d7451820fbc541302f16fef2d3390`), rather than left deferred: the three answers are recorded here because the policy was settled in that pass, not re-litigated:
 
 - **Pay from the pot; never conjure a payout** (finding 1). The collected bets are a real pot: hand those to the winner instead of fabricating copies with `BotLogic.generateCleanItem*`. Note this is player-facing, not bot-facing: a winning player currently keeps their own stake (it stays on the floor owned by them, `DropCommands.java:145-147`) *and* receives a conjured copy per unit, i.e. doubles real-value chips per winning hand and cashes them out at par through the lossless chip sell (`Shop.java:208-210`).
 - **The 1.5x blackjack bonus is house-funded** (`BlackjackDealerBot.java:565`). The extra 0.5x units come out of the dealer bot's own looted holdings, same item id, taken through a new ledgered item-debit beside `noteMesoSpent` (`BotHoldings` has `creditDrop`/`grantItem`/`spendMeso` but no item-spend API today). The house pays what it holds and mints nothing; losing pots replenish it; the winner's own 1.0x is always safe.

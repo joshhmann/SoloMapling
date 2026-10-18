@@ -21,7 +21,7 @@ A grilling outcome is `decisions/NN-slug.md` with `# Ticket NN: <question>`, `Ty
 ADRs live in `.pi-flow/docs/adr/` and carry plain paths, not markdown links. Use the pi-flow skills
 (`skill://explore`, `skill://grilling`, `skill://code-review`, …) — they expect `.pi-flow/` in the cwd.
 
-## Series status: tickets 01–11 all `done`
+## Series status: tickets 01–12 all `done`
 
 | Ticket | Commit | What it did |
 | --- | --- | --- |
@@ -38,18 +38,22 @@ ADRs live in `.pi-flow/docs/adr/` and carry plain paths, not markdown links. Use
 | 11 WZ read concurrency | `ee5aeb4e` | one shared read lock per parsed WZ document (`XMLDomMapleData`), 44 synchronized provider caches; the per-boot `fNodeListCache` NPE is gone |
 | cleanup | `9f7aca06` | dropped the dead merchant-owner write for bot owners (finding 4) |
 | records | `ced0c4a4` | moved `.pi-flow` from `/root/maplestory_dump` into this repo |
+| 12 casino pot payout | `1dfc85a4589d7451820fbc541302f16fef2d3390` | `Mark fabricated bot drops as props and pay casino pots from the house`: phase 1 pays a casino pot from the house (`BotHoldings.payOut`, blackjack `payUnit`, dice); phase 2 marks fabricated drops as props (`MapItem.conjured` across `DropCommands`/`MapleMap`/`CustomReactor`) and hands a real instance back via `BotHoldings.payOutItem`; settles decision 06 |
 
 ## Open work
 
-- **Deferred by the user (2026-10-17): the casino.** `decisions/06-casino-and-ambient-merchant-boundaries.md` records the agreed policy — pay the winner from the collected pot instead of conjuring a copy, a bot's stake stays a value-free prop, the blackjack 1.5x bonus is house-funded from the dealer's own ledgered holdings (needs a new ledgered *item* debit beside `BotHoldings.noteMesoSpent`). Findings 1–3 of ticket 10 carry the anchors and magnitudes; **nothing of it is implemented**. An id allowlist cannot implement the prop rule: `OPQBot` loots *real* reactor pieces and conjures copies with the same ids, so the mark has to be per drop instance, set where the drop is created.
-- **Recorded, not fixed:** bot-owned `HiredMerchant` income is a sink by design (only players can withdraw); `EventInstanceManager.unregisterPlayer` calls `dropExclusiveItems` outside its try (no caller registers bots today, so hardening would be unverifiable).
+- **The casino pot rule is implemented and settled (ticket 12, `1dfc85a4589d7451820fbc541302f16fef2d3390`).** Phase 1 pays from the pot (`BotHoldings.payOut`, blackjack `payUnit`, dice); phase 2 makes provenance a per-drop-instance flag (`MapItem.conjured`) that now rides every fabrication site — `DropCommands` items and meso, `MapleMap`'s meso and reactor spawns, `CustomReactor` — with bot loot removing a prop without crediting it. The provenance mechanism is complete across all three classes; the old id-allowlist constraint is satisfied and closed. `decisions/06-casino-and-ambient-merchant-boundaries.md` records the policy and now marks it landed.
+- **Live open thread — the two faucets (decisions/07, deferred):** `decisions/07-drop-game-and-nx-faucets.md` records the remaining places where a bot hands a player value it never held: `DropGameBot`'s paid prize (`DropGameBot.java:540`, fabricated with no debit while the player's stake *is* ledgered via `Trade.creditReceivedMeso` -> `BotHoldings.grantMeso`) and the NX gift-card mints (`NXMerchantBot.java:96-97`, `TutorialBot.java:357-361` -> `NXCodeManager.createCompleteNXCode`, DB-inserted with no debit). The rule is settled (value a bot hands out must come from its own holdings); implementation is deferred with the rest of the gambling-side work.
+- **Recorded, not fixed (ticket 10):** `EventInstanceManager.unregisterPlayer` (`EventInstanceManager.java:389-406`) calls `dropExclusiveItems` (`:940-946`) outside its `try`, and the reward APIs start from `Client.getPlayer()`; no caller registers a bot today, so hardening would be unverifiable — a future event that registers bots would NPE there rather than fail cleanly. Separately, bot-owned `HiredMerchant` income is a sink by design (only players can withdraw).
+- **Retained seam, no caller:** `DropCommands.botThrowEquip(Character, Equip, Point)` (`src/main/java/soloMapling/ArtificialPlayer/BotCommandsPack/DropCommands.java:108`) is the documented caller-supplied, non-conjuring overload (it passes `conjured = false` because the caller owns the instance). A `grep -rn "botThrowEquip(" src/` finds no production caller — the only invocations are its own declaration and one mock in `src/test/java/soloMapling/ArtificialPlayer/BotCommandsPack/DropCommandsProvenanceTest.java:82`; a commented-out line at `src/main/java/client/command/commands/gm4/ArtificialPlayerCommand.java:1025` is the only other mention. Kept as the seam for a caller that has real value to hand over; `TutorialBot` now uses `BotHoldings.payOutItem` instead.
 - `spec.md` still lists open questions (e.g. `BOTS_PER_MAP` keyed by map id may conflate channel instances; the FULL map tier is forced by `GCMovement.markObservedNow` because a headless harness has no real player).
 - The harness is not in CI (~5 min, needs MySQL + `wz/`), and absolute `ms/s` cost figures are host-specific.
 
 ## Verification recipes
 
 Repo suite (no `wz/`, ~30 s): `cd /root/SoloMapling && mvn -o test`
-→ expect `Tests run: 2024, Failures: 1, Errors: 4` — exactly the five known WZ-missing failures
+→ expect `Tests run: 2044, Failures: 1, Errors: 4` — 2024 plus ticket 12's 20 tests, failing with exactly the
+five known WZ-missing failures
 (`GCWorldGraphTest.scansWorldAndRoutesAdjacentMaps`, `CoarseExecutorTest.factoryPlansARealRoute`,
 `CoarseExecutorTest.interpolatesARealBakedEdge`, `GCMoveBakeTest.bakesHenesys`,
 `GCMoveBakeTest.bakesEllinia_ladderHeavy`). Anything else is a real regression.
@@ -57,11 +61,11 @@ Repo suite (no `wz/`, ~30 s): `cd /root/SoloMapling && mvn -o test`
 Real-WZ sandbox (if `/tmp/solomapling-e2e` is gone, rebuild it): copy `src/` into it together with the real
 `wz/` (149 MB) and a MySQL; then re-apply the two port seds and **never rsync over them**:
 `net/server/channel/Channel.java:78 BASE_PORT = 17575`, `net/server/Server.java:949 initLoginServer(18484)`.
-`mvn -o test` there → `Tests run: 2024, Failures: 0, Errors: 0`, `BUILD SUCCESS` (~4 min).
+`mvn -o test` there → `Tests run: 2044, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS` (~33 s).
 Copy changed files with `cp` (mkdir the parent first — the test tree has no `provider/wz`, and `cp` fails quietly in a loop when it is missing).
 
 Proof harness: `mvn -o -q package -DskipTests` → `target/Cosmic.jar`, then `bash /tmp/botproof_driver.sh`
-(~5.5 min, exits 0). Green = `[PROOF] PROOF-RUN COMPLETE`, `[PROOF] PROOF-VERIFY PASS`, all bullets `PASS`,
+(~5.5 min, exits 0). Green = `[PROOF] PROOF-RUN COMPLETE`, `[PROOF] PROOF-VERIFY PASS`, 12 bullets `PASS`,
 `grep -c fNodeListCache` = 0, and teardown ordered as
 `Shutting down the server!` → `[BotShutdown] bot activity quiesced (N schedulers cancelled)` →
 `[BotShutdown] macro wheel drained in Xms (residue N ticks)` → channel/world disposal.
@@ -83,3 +87,8 @@ Graph: `cd /root/SoloMapling && graphify update .` (ASCII, no API) → ~24.5 K n
 - Every bot value move must go through `BotHoldings` (the shared headless `BotClient` has no player, so
   `InventoryManipulator` cannot credit a bot). The ledger equals what the bot holds relative to its persisted
   baseline; `settle()` hands back net-positive deltas where the bot stands.
+- The proof driver also waits for the log4j-string teardown markers `Shutting down the server!` and
+  `Worlds and channels are offline.` (`net/server/Server.java:1940` and `:2005`), but those can never be
+  satisfied: the harness runs with `target/test-classes/log4j2-test.xml`, whose `<Root level="off">` silences
+  the console appender. The observable teardown markers are the `[BotShutdown]` System.out lines, and they do
+  appear in order.
