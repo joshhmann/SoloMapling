@@ -1,7 +1,7 @@
 # Finite resources for autonomous progression bots
 
 Date: 2026-10-16
-Status: Accepted target contract; implementation not authorized
+Status: Accepted target contract; implementation not authorized. **Update (2026-10-17):** tickets 01-13 have since implemented part of this contract - the `BotHoldings` ledger, the ownership/hand-over rules, the casino/provenance boundaries (`decisions/06`) and the ledger/row durability set (ticket 13, commit `8d5fd93e420dc3f97a62930aa071d49adb7684a5`) are landed - while the offscreen capacity basis, allocation policy and calibration remain open. Read this document as the target contract plus the open boundaries below, not as "nothing landed".
 
 ## Context
 
@@ -33,7 +33,7 @@ This is a target contract, not a claim that the current implementation satisfies
 
 ## Open boundaries
 
-- Whether ambient merchants and scripted attractions are in scope for migration remains undecided. Evidence for this boundary now exists: see `../../scalable-bot-simulation/issues/10-value-path-audit.md`, findings 1-4 (casino payouts conjure real-value chips, conjured display items can reach durable bot holdings, a bot-owned `HiredMerchant`'s income is sunk because only players can withdraw it, and the event-instance reward APIs are bot-hostile although no caller registers bots today). None of those is a leak through the accounting path; each needs a policy decision.
+- Whether ambient merchants and scripted attractions are in scope for migration remains undecided. Evidence for this boundary now exists: see `../../scalable-bot-simulation/issues/10-value-path-audit.md`, findings 1-4 (casino payouts conjure real-value chips, conjured display items can reach durable bot holdings, a bot-owned `HiredMerchant`'s income is sunk because only players can withdraw it, and the event-instance reward APIs are bot-hostile although no caller registers bots today). ~~None of those is a leak through the accounting path; each needs a policy decision.~~ **Update (2026-10-17):** two of those boundaries are closed and one is settled, so only the event-instance note remains recorded. The **casino payout** and **conjured display item** boundaries are decided in `../../scalable-bot-simulation/decisions/06-casino-and-ambient-merchant-boundaries.md` and implemented by ticket 12 (`../../scalable-bot-simulation/issues/12-casino-pot-payout.md`, commit `1dfc85a4589d7451820fbc541302f16fef2d3390`): a payout comes from the collected pot/house stock, never a conjured copy, and a conjured drop carries per-instance provenance so bot loot removes it without crediting it. The **ambient-merchant** boundary is settled as **sink-by-design** by the same decision: a bot-owned `HiredMerchant`'s income is a deliberate sink, and the dead owner-bank write was removed (commit `9f7aca06`). The **event-instance reward APIs** remain recorded, not hardened (no caller registers a bot today).
 - The capacity basis, allocation policy, and calibration remain undecided; compare map hunting capacity and regional economic quotas with evidence.
 - Initial grants, persistence across restarts, inventory capacity, transaction failure, and resource exhaustion behavior remain unspecified.
 - No utility selector, scheduler redesign, or live-host change has been approved.
