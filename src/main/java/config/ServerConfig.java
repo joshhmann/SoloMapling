@@ -55,6 +55,19 @@ public class ServerConfig {
     //SoloMapling: spawn the bot world automatically on server startup (cold boot).
     public boolean SPAWN_BOTS_ON_STARTUP;
 
+    //SoloMapling: player-directed bot chat through any OpenAI-compatible endpoint (bot-persistence ticket 12).
+    //Blank URL = scripted dialogue only. Each EXTRA_BODY value is a JSON fragment merged into the request body.
+    public String BOT_LLM_BASE_URL = "";
+    public String BOT_LLM_API_KEY = "";
+    public String BOT_LLM_MODEL = "";
+    public int BOT_LLM_MAX_TOKENS = 64;
+    public double BOT_LLM_TEMPERATURE = 1.0;
+    public int BOT_LLM_TIMEOUT_MS = 7000;
+    public int BOT_LLM_MAX_CONCURRENT = 2;
+    public int BOT_LLM_PLAYER_MIN_INTERVAL_MS = 1500;
+    public Map<String, String> BOT_LLM_EXTRA_BODY = new HashMap<>();
+    public Map<String, String> BOT_LLM_EXTRA_HEADERS = new HashMap<>();
+
     //Server Flags
     public boolean USE_CUSTOM_KEYSET;
     public boolean USE_DEBUG;
