@@ -267,14 +267,13 @@ public class SocialBot extends BotSM {
     @Override
     protected void processMessages() {
         try {
-            ChatMessage message = MessageQueue.getInstance()
-                    .getMessageWithTimeout("secondary", 1, TimeUnit.SECONDS);
-            if (message == null) return;
-
-            if (isBot(message.getSender())) return;
-
             Character respondant = getInteractors().getRespondant();
-            if (respondant == null || message.getSender().getId() != respondant.getId()) return;
+            if (respondant == null) return;
+
+            // Only this bot's player's lines: the queue is shared by every bot in a conversation.
+            ChatMessage message = MessageQueue.getInstance().pollFor("secondary",
+                    m -> !isBot(m.getSender()) && m.getSender().getId() == respondant.getId(), 1, TimeUnit.SECONDS);
+            if (message == null) return;
 
             lastRespondantMessageTime = System.currentTimeMillis();
             handlePlayerMessage(message);

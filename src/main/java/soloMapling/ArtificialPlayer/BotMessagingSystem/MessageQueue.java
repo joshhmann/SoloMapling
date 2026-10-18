@@ -1,10 +1,12 @@
 package soloMapling.ArtificialPlayer.BotMessagingSystem;
 
+import java.util.Collection;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 
 import static soloMapling.BotLogger.log;
 
@@ -33,6 +35,9 @@ public class MessageQueue {
             throw new IllegalArgumentException("Queue not found: " + name);
         }
     }
+
+    /** How often {@link #pollFor} re-scans while it waits for a message it wants. */
+    private static final long CLAIM_RESCAN_MS = 50;
 
     private final Map<QueueType, BlockingQueue<ChatMessage>> queues;
     private static final MessageQueue messageQueue = new MessageQueue();
@@ -95,6 +100,47 @@ public class MessageQueue {
 
     public ChatMessage getMessageWithTimeout(QueueType queueType, long timeout, TimeUnit unit) throws InterruptedException {
         return queues.get(queueType).poll(timeout, unit);
+    }
+
+    /**
+     * Takes the first message {@code wanted} accepts, waiting up to the timeout for one to arrive, and leaves
+     * every other message where it is. The shared queues are read by every bot in a conversation, so a bot must
+     * take only its own player's lines: a plain poll hands a bot whatever is at the head, and the bot then drops
+     * a line that belonged to another bot's player.
+     */
+    public ChatMessage pollFor(String queueName, Predicate<ChatMessage> wanted, long timeout, TimeUnit unit)
+            throws InterruptedException {
+        return pollFor(QueueType.fromString(queueName), wanted, timeout, unit);
+    }
+
+    public ChatMessage pollFor(QueueType queueType, Predicate<ChatMessage> wanted, long timeout, TimeUnit unit)
+            throws InterruptedException {
+        BlockingQueue<ChatMessage> queue = queues.get(queueType);
+        long deadline = System.nanoTime() + unit.toNanos(timeout);
+        while (true) {
+            ChatMessage message = claim(queue, wanted);
+            if (message != null) {
+                return message;
+            }
+            long left = deadline - System.nanoTime();
+            if (left <= 0) {
+                return null;
+            }
+            TimeUnit.NANOSECONDS.sleep(Math.min(left, TimeUnit.MILLISECONDS.toNanos(CLAIM_RESCAN_MS)));
+        }
+    }
+
+    /**
+     * Removes and returns the first message {@code wanted} accepts, or null. The remove is the claim: when two
+     * bots see the same message, only the one whose remove succeeds gets it.
+     */
+    static ChatMessage claim(Collection<ChatMessage> queue, Predicate<ChatMessage> wanted) {
+        for (ChatMessage message : queue) {
+            if (wanted.test(message) && queue.remove(message)) {
+                return message;
+            }
+        }
+        return null;
     }
 
     public ChatMessage peekMessage() {

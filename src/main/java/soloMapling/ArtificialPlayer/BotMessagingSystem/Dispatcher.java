@@ -45,11 +45,16 @@ public class Dispatcher implements Runnable {
 
     //    @Override
     private void processMessages() {
+        // Every waiting line, not one per pass: at one line per 2 s pass, a burst of more than five lines outlives
+        // the queue's 10 s expiry (QueueCleaner) and the tail is dropped before any bot sees it.
+        ChatMessage message;
+        while ((message = messageQueue.getMessageNonBlocking("primary")) != null) {
+            dispatch(message);
+        }
+    }
+
+    private void dispatch(ChatMessage message) {
         try {
-            ChatMessage message = messageQueue.getMessageNonBlocking("primary");
-            if (message == null) {
-                return;
-            }
             Collection<Character> chars_on_map = message.getMap().getCharacters();
             final int[] botToCall = new int[1];  // Using an array to hold the bot ID
 
