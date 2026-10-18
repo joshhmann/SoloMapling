@@ -1,5 +1,7 @@
 package soloMapling.ArtificialPlayer.BotTypes;
 
+import soloMapling.ArtificialPlayer.BotRoster;
+
 import client.Character;
 import client.inventory.Item;
 import constants.id.MapId;
@@ -406,8 +408,45 @@ public class TrainingBot extends BotSM {
     private void doInit() {
         ensureCombatTicker();
         homeMapId = getChr().getMapId();
+        if (resumeGrind(BotRoster.takeResume(getChr().getId()))) {
+            return;
+        }
         // No mobs here → it's a town: do the town beat first. Has mobs → a field: decide immediately.
         enterPhase(MapMobIndex.level(homeMapId) < 0 ? Phase.IN_TOWN : Phase.DECIDE);
+    }
+
+    /**
+     * Picks up a roster member where it logged out (bot-persistence ticket 06): its home town comes back, and
+     * a bot that logged out on its train map keeps grinding there instead of choosing a new map - DECIDE's
+     * map search excludes the map it stands on, so without this every resumed grinder would wander off.
+     */
+    private boolean resumeGrind(BotRoster.Activity resume) {
+        if (resume == null) {
+            return false;
+        }
+        if (resume.homeMapId() > 0) {
+            homeMapId = resume.homeMapId();
+        }
+        int here = getChr().getMapId();
+        boolean grinding = resume.name().isEmpty() || resume.name().equals(GRIND_ACTIVITY);
+        if (!grinding || resume.intState(BotRoster.TRAIN_STATE, -1) != here || MapMobIndex.level(here) < 0) {
+            return false;
+        }
+        setTrainTarget(here, Math.max(1, MapMobIndex.level(here)));
+        firstTrip = false;
+        enterPhase(Phase.GRIND);
+        return true;
+    }
+
+    private static final String GRIND_ACTIVITY = "grind";
+
+    @Override
+    public BotRoster.Activity activitySnapshot() {
+        Map<String, Object> state = new java.util.LinkedHashMap<>();
+        if (currentTrainMapId >= 0) {
+            state.put(BotRoster.TRAIN_STATE, currentTrainMapId);
+        }
+        return new BotRoster.Activity(GRIND_ACTIVITY, Math.max(0, homeMapId), state);
     }
 
     // In a town hub: settle a beat, maybe plan a shop trip, then either head to the first store or decide

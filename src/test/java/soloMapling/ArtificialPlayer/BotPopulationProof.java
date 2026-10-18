@@ -276,12 +276,52 @@ public final class BotPopulationProof {
         record(results, "the live wallet still holds what it held before the offers",
                 live.getMeso() >= recordedMeso,
                 "wallet before the offers=" + recordedMeso + ", live wallet=" + live.getMeso());
+        resumeChecks(results, id, row);
         writeVerify(results);
         boolean pass = results.stream().allMatch(line -> line.startsWith("PASS"));
         say("PROOF-VERIFY " + (pass ? "PASS" : "FAIL"));
         System.out.flush();
         Thread.sleep(200);
         System.exit(pass ? 0 : 5);
+    }
+
+    /**
+     * bot-persistence ticket 06: the tracked bot is a roster member (wave 8), so it must log in where its row
+     * says it logged out - not at its wave's town - and pick its activity back up. The row was written by the
+     * run phase's shutdown sweep, after bot activity was quiesced.
+     */
+    private static void resumeChecks(List<String> results, int id, BotStore.Persisted row) {
+        int slot = id - BotStore.BOT_ID_BASE;
+        BotRoster.Member member = BotRoster.member(slot);
+        record(results, "the bot is a roster member", member != null, "slot=" + slot);
+        if (member == null || row == null) {
+            return;
+        }
+        BotRoster.LoginPlace place = BotRoster.loginPlace(id);
+        MapleMap storedMap = Server.getInstance().getChannel(0, 1).getMapFactory().getMap(row.mapId);
+        int expectedMap = storedMap != null && storedMap.getForcedReturnId() != constants.id.MapId.NONE
+                ? storedMap.getForcedReturnId() : row.mapId;
+        boolean sameMap = place != null && place.mapId() == expectedMap;
+        boolean samePoint = place != null && (expectedMap != row.mapId || (place.x() == row.posX && place.y() == row.posY));
+        record(results, "it logged in where its row says it logged out", sameMap && samePoint,
+                "row map=" + row.mapId + " (" + row.posX + ", " + row.posY + "), expected map=" + expectedMap
+                        + ", logged in at " + (place == null ? "nowhere" : place.mapId() + " (" + place.x() + ", "
+                        + place.y() + ")"));
+        BotRoster.Activity last = member.lastActivity();
+        record(results, "its row recorded what it was doing at logout", last != null && !last.name().isEmpty()
+                        && member.lastLogoutAt() > 0,
+                "activity=" + (last == null ? "none" : last.name() + " home=" + last.homeMapId() + " " + last.state())
+                        + " lastLogoutAt=" + member.lastLogoutAt());
+        BotSM brain = soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage.getBotById(id);
+        BotRoster.Activity now = brain == null ? null : brain.activitySnapshot();
+        if (last != null && "grind".equals(last.name()) && last.intState(BotRoster.TRAIN_STATE, -1) == row.mapId
+                && expectedMap == row.mapId) {
+            record(results, "a grinder that logged out on its train map kept grinding there",
+                    now != null && now.intState(BotRoster.TRAIN_STATE, -1) == row.mapId
+                            && now.homeMapId() == last.homeMapId(),
+                    "logged out training on " + row.mapId + " home " + last.homeMapId() + ", now "
+                            + (now == null ? "no brain" : now.name() + " home=" + now.homeMapId() + " " + now.state()));
+        }
     }
 
     // ── steps ────────────────────────────────────────────────────────────────────────────────────────

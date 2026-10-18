@@ -38,8 +38,8 @@ Bots get better at moving around maps over time.
 | --- | --- |
 | Restart / relog | Resume exactly where stopped: map, position, current activity and its parameters. |
 | Offline progress | None. A logged-out bot is frozen. |
-| Peak online | 500+. Scaling is in scope. |
-| Roster size | ~3-5x peak (~2000 registered for 500 online). |
+| Peak online | ~3,300 — today's boot population (3,491 stored rows, 292 in Henesys alone) is the evening peak; nights thin out from it. Settled 2026-10-18 after ticket 01 counted the store. |
+| Roster size | ~3x peak (~10,000 registered). |
 | Online rhythm | Real-clock daily curve; each bot has its own habitual play window, so "regulars" recur. |
 | New bots | Mostly level 1, plus a seeded starting roster of "veterans" across levels so day one isn't all beginners. |
 | Churn | A bot that quits goes dormant (row kept); small chance of returning much later. |
@@ -94,10 +94,10 @@ Bots get better at moving around maps over time.
   `setAndStartBots`. A resumed session keeps its previous activity.
 - GM commands: `!roster status`, `!roster login|logout <name>`, `!roster curve` (preview), `!roster seed`.
 
-### 4. Scaling to 500+ online
+### 4. Scaling at ~3,300 online
 
 - Most online bots are offscreen; they run on the existing LOD path (`ObserverTracker`, `CoarseExecutor`).
-- Before raising the default peak, run `BotPopulationProof` at 500 and 750 online with
+- Before raising the default peak, run `BotPopulationProof` at ~3,300 and ~4,100 online with
   `BotPerformanceMonitor` attribution and record the sparse / crowded / transition costs. Login and logout are
   new transition costs and must be measured.
 
@@ -163,7 +163,7 @@ Bots get better at moving around maps over time.
 | P1 | Roster identity, migration 026, unique names, import of existing rows | P0 |
 | P2 | Resume exactly (last map, activity state) | P1 |
 | P3 | Population director: daily curve, sessions, commitment-safe logout, creation/dormancy/return, seeding | P2 |
-| P4 | Scale proof at 500/750 online; tune LOD and login/logout costs | P3 |
+| P4 | Scale proof at ~3,300 / ~4,100 online; tune LOD and login/logout costs | P3 |
 | P5 | `BotBrain` + OpenAI-compatible provider + scripted fallback + persona | P1 (persona column) |
 | P6 | Memory notes + gossip | P5 |
 | N1 | Nav learning from failures | — |
@@ -172,7 +172,7 @@ Bots get better at moving around maps over time.
 P5/P6 and N1/N2 can run in parallel with P2-P4.
 
 Tickets (`issues/`): P0 = 01-03 · P1 = 04-05 · P2 = 06 · P3 = 07-10 · P4 = 11 · P5 = 12-13 · P6 = 14-15 ·
-N1 = 16 · N2 = 17-18 · chat routing = 19. Independent starting points: 01, 02, 03, 12.
+N1 = 16 · N2 = 17-18 · chat routing = 19 · client-safe item ids = 20. Independent starting points: 01, 02, 03, 12.
 
 ## Testing
 

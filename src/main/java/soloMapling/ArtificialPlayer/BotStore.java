@@ -101,6 +101,14 @@ public final class BotStore {
     /** The first slot the boot plan owns; everything below it belongs to on-demand spawns. */
     public static final int FIRST_PLANNED_SLOT = FIRST_SLOT + DYNAMIC_SLOTS;
 
+    /**
+     * The first slot of the roster block (bot-persistence ticket 04): bots that join the roster after it was
+     * enrolled take slots above every slot {@link #planSlot} can produce, so a new player can never collide with
+     * a boot-plan position. Roster slots count as planned - a roster bot is adopted from its row like any
+     * planned bot.
+     */
+    public static final int FIRST_ROSTER_SLOT = FIRST_PLANNED_SLOT + (MAX_WAVE + 1) * SLOTS_PER_WAVE;
+
     /*
      * First-creation policy. A new bot owns exactly the look and gear its decorator gave it: no
      * experience, no mesos, and inventory space limited by the row it is cloned from. Stated here,
@@ -264,6 +272,19 @@ public final class BotStore {
                     + task + " (a task owns " + SLOTS_PER_TASK + " slots)");
         }
         return FIRST_PLANNED_SLOT + wave * SLOTS_PER_WAVE + task * SLOTS_PER_TASK + ordinal;
+    }
+
+    /** True for a slot of the roster block, see {@link #FIRST_ROSTER_SLOT}. */
+    public static boolean isRosterSlot(int slot) {
+        return slot >= FIRST_ROSTER_SLOT;
+    }
+
+    /** The boot-plan wave a planned slot belongs to, or -1 for an on-demand or roster-block slot. */
+    public static int waveOf(int slot) {
+        if (!isPlanned(slot) || isRosterSlot(slot)) {
+            return -1;
+        }
+        return (slot - FIRST_PLANNED_SLOT) / SLOTS_PER_WAVE;
     }
 
     /** True for a slot the boot plan owns. Only planned slots are adopted; see {@link #nextDynamicSlot()}. */

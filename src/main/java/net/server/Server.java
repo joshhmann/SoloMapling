@@ -72,6 +72,7 @@ import server.life.PlayerNPC;
 import server.quest.Quest;
 import service.NoteService;
 import soloMapling.ArtificialPlayer.BotClientHandler;
+import soloMapling.ArtificialPlayer.BotRoster;
 import soloMapling.ArtificialPlayer.BotStore;
 import soloMapling.Environment.EnvironmentManager;
 import soloMapling.server.BotShutdown;
@@ -1957,7 +1958,9 @@ public class Server {
         for (World w : getWorlds()) {
             PlayerStorage players = w.getPlayerStorage();
             if (players != null) {
-                BotStore.settleAndSaveAll(new ArrayList<>(players.getAllCharacters()));
+                List<Character> everyone = new ArrayList<>(players.getAllCharacters());
+                BotStore.settleAndSaveAll(everyone);
+                BotRoster.recordSessions(everyone, System.currentTimeMillis(), true);
             }
         }
 

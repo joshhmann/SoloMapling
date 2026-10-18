@@ -318,6 +318,11 @@ public class FMShopDescGen {
         return name;
     }
 
+    /** Registers a bot character's name so shop owners can be drawn from the bots that are online. */
+    public static synchronized void registerCharacterName(String name) {
+        assignedCharacterNames.add(name);
+    }
+
     /**
      * Gets a name for a shop owner. ~35% chance to pick from existing bot character
      * names (simulates an online player's shop), otherwise draws a fresh unique name

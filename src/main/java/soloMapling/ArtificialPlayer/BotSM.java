@@ -458,6 +458,16 @@ public abstract class BotSM implements EventSubscriber {
         }
     }
 
+    /**
+     * What this bot is doing, for the roster to resume it after a logout or restart (bot-persistence ticket 06).
+     * The default records the bot type and the map it stands on as home; a type with more to resume
+     * ({@code TrainingBot}'s train map) overrides it.
+     */
+    public BotRoster.Activity activitySnapshot() {
+        String name = getClass().getSimpleName().replace("Bot", "").toLowerCase(java.util.Locale.ROOT);
+        return new BotRoster.Activity(name.isEmpty() ? "bot" : name, 0, java.util.Map.of());
+    }
+
     public List<MapObject> detectItems() {
         return null;
     }

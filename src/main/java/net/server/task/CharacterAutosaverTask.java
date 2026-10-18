@@ -24,6 +24,7 @@ import config.YamlConfig;
 import net.server.PlayerStorage;
 import net.server.world.World;
 import soloMapling.ArtificialPlayer.BotHelpers;
+import soloMapling.ArtificialPlayer.BotRoster;
 import soloMapling.ArtificialPlayer.BotStore;
 
 import java.util.ArrayList;
@@ -58,7 +59,10 @@ public class CharacterAutosaverTask extends BaseTask implements Runnable {  // t
             }
         }
         if (!bots.isEmpty()) {
-            runAsync(() -> BotStore.saveAll(bots));
+            runAsync(() -> {
+                BotStore.saveAll(bots);
+                BotRoster.recordSessions(bots, System.currentTimeMillis(), false);
+            });
         }
     }
 

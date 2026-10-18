@@ -45,6 +45,14 @@ public final class BotStoreReport {
         List<String> lines = new ArrayList<>();
         lines.add(String.format("Bot store: %d rows (%d planned, %d on-demand)", rows.size(), planned,
                 rows.size() - planned));
+        int dormant = 0;
+        for (BotRoster.Member member : BotRoster.members()) {
+            if (member.status() == BotRoster.Status.DORMANT) {
+                dormant++;
+            }
+        }
+        int rosterSize = BotRoster.members().size();
+        lines.add(String.format("Roster: %d members (%d active, %d dormant)", rosterSize, rosterSize - dormant, dormant));
         lines.add(String.format("Online: %d bots - %d adopted from the store this run, %d minted fresh, %d not yet saved",
                 onlineBots.size(), adopted, onlineBots.size() - adopted, unstored));
         if (unreadable > 0) {
@@ -71,8 +79,25 @@ public final class BotStoreReport {
      * that is not online, and the stored half is absent for a bot this run has not written yet.
      */
     public static List<String> describe(int charId, Character live, long now) {
-        return describe(charId, live, BotStore.persistedFor(charId), BotStore.isAdoptedInThisRun(charId),
+        List<String> lines = describe(charId, live, BotStore.persistedFor(charId), BotStore.isAdoptedInThisRun(charId),
                 BotStore.isHoldingsUnavailable(charId), now);
+        lines.add(1, rosterLine(BotRoster.member(charId - BotStore.BOT_ID_BASE), now));
+        BotRoster.LoginPlace place = BotRoster.loginPlace(charId);
+        if (place != null) {
+            lines.add(2, String.format("logged in this run at map %d (%d, %d), %s", place.mapId(), place.x(),
+                    place.y(), ago(place.at(), now)));
+        }
+        return lines;
+    }
+
+    static String rosterLine(BotRoster.Member member, long now) {
+        if (member == null) {
+            return "roster: not a member (staff or boot-plan bot)";
+        }
+        return String.format("roster: %s, home %s, activity %s, last login %s, last logout %s", member.status(),
+                member.homeMapId() == 0 ? "unset" : String.valueOf(member.homeMapId()),
+                member.activity() == null || member.activity().isEmpty() ? "unset" : member.activity(),
+                ago(member.lastLoginAt(), now), ago(member.lastLogoutAt(), now));
     }
 
     static List<String> describe(int charId, Character live, BotStore.Persisted stored, boolean adopted,

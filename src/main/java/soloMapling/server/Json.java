@@ -1,4 +1,4 @@
-package soloMapling.ArtificialPlayer.BotBrainSystem;
+package soloMapling.server;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -6,21 +6,21 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Just enough JSON for an OpenAI-compatible chat call: write a request body, read the reply's text out of the
- * response. The project carries no JSON library, and the two shapes involved are small and fixed.
+ * Just enough JSON for the bot systems' small fixed shapes: an OpenAI-compatible chat call's body and reply,
+ * and the roster's activity state. The project carries no JSON library.
  * Values are {@code String}, {@code Number}, {@code Boolean}, {@code null}, {@code Map} or {@code List};
  * a {@link Raw} is written verbatim (a config fragment that is already JSON).
  */
-final class Json {
+public final class Json {
 
     /** A JSON fragment that is written as-is. */
-    record Raw(String json) {
+    public record Raw(String json) {
     }
 
     private Json() {
     }
 
-    static String write(Object value) {
+    public static String write(Object value) {
         StringBuilder out = new StringBuilder();
         write(value, out);
         return out.toString();
@@ -85,7 +85,7 @@ final class Json {
     }
 
     /** Parses a JSON document into the value types listed on the class. */
-    static Object parse(String json) {
+    public static Object parse(String json) {
         Parser parser = new Parser(json);
         Object value = parser.value();
         parser.skipWhitespace();
@@ -96,7 +96,7 @@ final class Json {
     }
 
     /** Checks that a config fragment is one well-formed JSON value. */
-    static boolean isValid(String json) {
+    public static boolean isValid(String json) {
         try {
             parse(json);
             return true;

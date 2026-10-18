@@ -20,7 +20,7 @@ import static soloMapling.ArtificialPlayer.BotCommandsPack.WarpCommands.botEnter
 import static soloMapling.ArtificialPlayer.BotDecoratorSystem.BotDecorate.setBotVariables;
 import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.microTurnAroundToLeft;
 import static soloMapling.DebugUtilities.debugprint;
-import static soloMapling.FreeMarket.FMShopDescGen.getRandomCharacterIGN;
+import static soloMapling.FreeMarket.FMShopDescGen.registerCharacterName;
 import static soloMapling.server.ExecutorServiceManager.runAsync;
 import static soloMapling.server.SoloMaplingUtilities.getChr;
 import static soloMapling.server.SoloMaplingUtilities.channel;
@@ -112,11 +112,29 @@ public class BotGeneration {
         // bot joins the map, so the spawn packet already carries the stored name instead of the
         // placeholder one. On-demand spawns never adopt: their slot is arrival order, not a plan position.
         boolean adopted = BotStore.isPlanned(slot) && BotStore.restoreIdentity(bot);
+        // Ticket bot-persistence/05: one name per character, for good. An adopted bot keeps its stored name
+        // unless an older bot or a real player holds it; the store records a rename with the bot's next save.
+        bot.setName(adopted ? BotNames.claimStored(botId, bot.getName()) : BotNames.claimNew(botId));
+        registerCharacterName(bot.getName());
+        // Ticket bot-persistence/06: a roster member logs back in where it logged out, not where its spawn
+        // wave would put a new bot, and its bot type is handed what it was doing.
+        MapleMap placeMap = map;
+        Point placePos = pos;
+        if (adopted && BotRoster.isMember(slot)) {
+            BotStore.Persisted stored = BotStore.persistedFor(botId);
+            BotResume.Placement resume = BotResume.placementFor(stored.mapId, new Point(stored.posX, stored.posY),
+                    id -> getBotClient().getChannelServer().getMapFactory().getMap(id));
+            if (resume != null) {
+                placeMap = resume.map();
+                placePos = resume.position();
+            }
+            BotRoster.recordLogin(botId, System.currentTimeMillis(), map.getId(), placeMap.getId(), placePos);
+        }
         addBotToServer(bot);
-        placeBotOnMap(bot, pos, map);
+        placeBotOnMap(bot, placePos, placeMap);
         placedBots.incrementAndGet();
         if (adopted) {
-            BotStore.restorePlacement(bot, map);
+            BotStore.restorePlacement(bot, placeMap);
         } else {
             // Decorate before the drop-down plays so the bot arrives fully dressed
             // (decoration is an in-memory cache lookup, takes microseconds).
@@ -206,7 +224,7 @@ public class BotGeneration {
     private static Character setBotStats(Character baseChr, int botId) {
         Character onDemandBot = baseChr; // Character.getDefault(c)
         onDemandBot.setClient(getBotClient());
-        onDemandBot.setName(getRandomCharacterIGN());
+        onDemandBot.setName(""); // claimed in createBot once it is known whether the slot is adopted
         onDemandBot.setID(botId);
         onDemandBot.setFame(botId); // debug purposes
         return onDemandBot;
@@ -232,6 +250,7 @@ public class BotGeneration {
         // If the store cannot be written the bot is settled onto the map instead - while the map is still
         // available - so what it accumulated is never silently destroyed.
         BotStore.saveThenSettle(fakechar);
+        BotRoster.recordSessions(java.util.List.of(fakechar), System.currentTimeMillis(), true);
         fakechar.getMap().removePlayer(fakechar);
         channel.removePlayer(fakechar);
         world.getPlayerStorage().removePlayer(fakechar.getId());
