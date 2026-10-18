@@ -1,0 +1,35 @@
+# Data flow
+
+Builds on architecture.md; source revision 47b61b5381118ebdc1064ddbd0b1c32f75778871.
+
+## Navigation
+- WZ footholds/ropes/portals + movement profile → cached region graph → bot-seeded route search → launch-window/rope/waypoint steering → server physics → Character position/stance → observer packet. `src/main/java/soloMapling/ArtificialPlayer/GCMoveSystem/BotNavigationGraphProvider.java:571-702,904-958,1125-1166`; `src/main/java/soloMapling/ArtificialPlayer/GCMoveSystem/BotNavigationManager.java:939-1019,1533-1579`.
+- Packets follow simulation, not vice versa: `src/main/java/soloMapling/ArtificialPlayer/GCMoveSystem/BotMovementManager.java:866-934` deduplicates unchanged state, suppresses unobserved broadcasts, emits 15-byte absolute movement fragment with position/velocity/foothold/stance/duration.
+- Unobserved GC movement may linearly interpolate baked edge endpoints and directly snap to targets. Promotion snaps to ground and resumes physics. `src/main/java/soloMapling/ArtificialPlayer/GCMoveSystem/GCMovementDriver.java:241-425`; `src/main/java/soloMapling/ArtificialPlayer/GCMoveSystem/MovementPlan.java:43-118`.
+- Legacy recordings instead supply timestamped coordinate streams: `src/main/java/soloMapling/ArtificialPlayer/BotMovementSystem/MovementCommands.java:101-163,336-383,601-618`.
+- World BFS → portal/taxi/curated-script trigger → walk/dwell → direct map change. No-route and stall branches warp. `src/main/java/soloMapling/ArtificialPlayer/GCMoveSystem/GCTravel.java:143-339`; `src/main/java/soloMapling/ArtificialPlayer/GCMoveSystem/GCPortals.java:23-49`.
+
+## Attacking
+- `src/main/java/soloMapling/ArtificialPlayer/BotTypes/TrainingBot.java:168-219,708-735`: macro GRIND phase registers shared 250 ms combat loop; `GrindBrain` selects CAMP/PATROL/ROAM/STACK based on map layout and movement style.
+- Strategy target → approach/facing/kiting/hop via EngageBeat → BotAttackDriver independently selects actual targets. `src/main/java/soloMapling/ArtificialPlayer/BotGrindSystem/EngageBeat.java:60-188,238-321`; `src/main/java/soloMapling/ArtificialPlayer/BotAttackSystem/BotAttackDriver.java:153-274,305-404`.
+- Job/weapon registry → single/AoE/ultimate slot → reach/ledge/facing filter → target cap → synthetic damage lines. Attack cooldowns roughly 720–900 ms, ultimate 25 s; no ordinary skill possession, MP, ammunition checks. `src/main/java/soloMapling/ArtificialPlayer/BotAttackSystem/BotAttackConfig.java:70-121,174-218`; `src/main/java/soloMapling/ArtificialPlayer/BotAttackSystem/BotAttackProfile.java:47-97`.
+- `src/main/java/soloMapling/ArtificialPlayer/BotAttackSystem/BotDamageModel.java:19-55`: damage tier bands 20–40 / 70–160 / 240–620 / 900–2300 / 2800–6500; multiply by 1 + level/250; ≤2-line attacks gain random 2–2.5 multiplier. Not normal player stat/weapon/defense formula.
+- Attack packet + actual monster HP mutation: `src/main/java/soloMapling/ArtificialPlayer/BotAttackSystem/BotAttackEffects.java:117-148` broadcasts, sums lines, directly calls Monster.damage, then MapleMap.killMonster(..., false, hitDelay), then custom drop generation. HP mutation is immediate, not delayed by visual hit delay.
+- Normal engine damage attribution/EXP/death remains active; vanilla drops suppressed and effective drop entries rolled separately. `src/main/java/server/life/Monster.java:355-477,603-683,729-785`; `src/main/java/server/maps/MapleMap.java:1377-1476`; `src/main/java/soloMapling/ArtificialPlayer/BotAttackSystem/BotAttackEffects.java:157-216`.
+- Offscreen progress bypasses killing: direct abstract EXP/level changes, round(0.5 * max(1, mobLevel) * elapsedSeconds), capped at level 195. `src/main/java/soloMapling/ArtificialPlayer/BotTypes/TrainingBot.java:1171-1198`.
+- Retaliation/fall damage broadcasts hurt numbers and applies knockback, never subtracts HP: `src/main/java/soloMapling/ArtificialPlayer/GCMoveSystem/BotContactDamage.java:102-174`. Bots cannot serve as monster movement controllers: `src/main/java/server/life/Monster.java:1840-1880,1915-1922`.
+- Self-buffs are visual; real nearby party members may receive actual StatEffect buffs: `src/main/java/soloMapling/ArtificialPlayer/BotAttackSystem/BotBuffEffects.java:39-60,85-125,181-203`.
+
+## Social and economic actions
+- Player chat handler → shared MessageQueue → Dispatcher → SocialBot keyword/menu FSM → YAML response → delayed chat/emote packets. No free-form language model. `src/main/java/net/server/channel/handlers/GeneralChatHandler.java:65-67`; `src/main/java/soloMapling/ArtificialPlayer/BotMessagingSystem/Dispatcher.java:42-135,163-173`; `src/main/java/soloMapling/ArtificialPlayer/BotTypes/SocialBot.java:265-457`.
+- Ambient conversations select nearby available bots and replay timed YAML roles. `src/main/java/soloMapling/ArtificialPlayer/ConversationManager.java:35-180,193-390`; `src/main/java/soloMapling/ArtificialPlayer/BotChatterSystem/BotChatter.java:42-250`.
+- Trade invite → queue → native visitTrade → offer/price FSM → native completeTrade; real player inventory and mesos change. Bot supplies can be generated; setMesoBot does not debit bot funds. `src/main/java/soloMapling/ArtificialPlayer/BotTradeSystem/BotTradeSM.java:107-239`; `src/main/java/server/Trade.java:124-157,190-211,510-545`.
+- FMBot shop purchases reduce real stock and credit seller; buyer pays no funds and receives no inventory. `src/main/java/server/maps/PlayerShop.java:708-742`; `src/main/java/server/maps/HiredMerchant.java:833-882`.
+- Generic loot is an item sink: pickup packet → map removal; no inventory/meso gain. `src/main/java/soloMapling/ArtificialPlayer/BotCommandsPack/DropCommands.java:243-267`; `src/main/java/server/maps/MapleMap.java:993-1000`.
+- Scrolling outcomes dramatize an already-generated equipment result: `src/main/java/soloMapling/ArtificialPlayer/BotTypes/ScrollingBot.java:87-163`.
+- NX sale creates database-backed redeemable codes after successful trade: `src/main/java/soloMapling/ArtificialPlayer/BotTypes/NXMerchantBot.java:58-110`; `src/main/java/soloMapling/server/NXCodeManager.java:22-101`.
+
+## Parties and choreographed quests
+- Invites → BotPartyQueue → native Party/InviteCoordinator. Social recruitment converts accepted bot into FollowerBot while keeping Character membership. `src/main/java/soloMapling/ArtificialPlayer/BotPartySystem/BotPartyCommands.java:19-87,115-151`; `src/main/java/soloMapling/ArtificialPlayer/BotTypes/SocialBot.java:437-457`.
+- OPQ singleton assigns unclaimed reactors → recorded approach → four cosmetic swings at 700 ms → direct reactor state increments → explicit item drop → removal/local accounting/respawn at delivery location. Follows human leader's map instance. Implemented cloud and record stages, not full autonomous OPQ. `src/main/java/soloMapling/ArtificialPlayer/BotTypes/OPQ/OPQBot.java:272-552,562-791`; `src/main/java/soloMapling/MapVFX/CustomReactor.java:79-104`.
+- Pet Park JQ selects progressively weighted failure/success recordings; tier 7 selection defines success, not physical quest validation. `src/main/java/soloMapling/ArtificialPlayer/BotTypes/HenesysJQBot.java:132-293`.
