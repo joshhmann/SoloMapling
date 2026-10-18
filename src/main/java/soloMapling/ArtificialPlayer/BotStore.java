@@ -784,6 +784,16 @@ public final class BotStore {
         }
     }
 
+    /** Every stored row, as of the last read or write in this run (the GM read-out, {@link BotStoreReport}). */
+    static Collection<Persisted> storedRows() {
+        return roster().values();
+    }
+
+    /** Whether this bot's stored items could not be read this run, so it is not writing its inventory. */
+    static boolean isHoldingsUnavailable(int charId) {
+        return holdingsUnavailable.contains(charId);
+    }
+
     /** Remembers a just-written bot so later adoptions in this run see it without another read. */
     private static void remember(int botId, Character bot) {
         roster.put(botId, of(bot));

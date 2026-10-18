@@ -161,6 +161,7 @@ import client.command.commands.gm4.GCMoveCommand;
 import client.command.commands.gm4.CakeCommand;
 import client.command.commands.gm4.DropRateCommand;
 import client.command.commands.gm4.EnvironmentCommand;
+import client.command.commands.gm4.RosterCommand;
 import client.command.commands.gm4.ExpRateCommand;
 import client.command.commands.gm4.FMBotCommand;
 import client.command.commands.gm4.FishingRateCommand;
@@ -541,6 +542,7 @@ public class CommandsExecutor {
         addCommand("fmbot", 4, FMBotCommand.class);
         addCommand("tradebot", 4, TradeBotTestCommand.class);
         addCommand("env", 4, EnvironmentCommand.class);
+        addCommand("roster", 4, RosterCommand.class);
 
         commandsNameDesc.add(levelCommandsCursor);
     }
