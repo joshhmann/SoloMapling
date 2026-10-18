@@ -47,7 +47,7 @@ final class BotNavigationGraphProvider {
     //     inside an 8.93 x fs px/s band (no walkSpeed air cap; counter-strafe pins at the
     //     band edge) and no-input flight drags 1 x fs (100 x fs at terminal fall). Committed
     //     arcs still fly the launch key held, so constant-stepX arc sims stay exact.
-    private static final int GRAPH_VERSION = 61; // 51: kinetic slippery model + snowshoes; 52: brake-to-stop landings; 53: glide-unless-edge stop policy (slipperyStopDir); 56: uncap straight-drop launch windows (full droppable span, no +/-20 fragmentation); 57: remove the (empirically wrong) 300px down-jump drop cap - down-jumps fall until landing; 58: rope-grab reach counts descent below the ledge (mid-rope jump-grabs from adjacent platforms); 59: fall-sim caps to map height not 1500ms - long single-fall descents (tall shafts: Ellinia tree, Perion) now generate DROP/JUMP/ROPE edges; 60: re-cap drops for organic descent - walk-offs capped at MAX_DROP_PX, down-jumps at the tighter DOWN_JUMP_MAX_DROP_PX, and down-jumps carry DOWN_JUMP_COST_PENALTY_MS so the pathfinder prefers ropes/walk-offs over plummeting an entire vertical map; 61: widened rope top-exit probe (BotPhysicsEngine.findTopExitLanding) - accept a step-off foothold slightly above/below the rope top and a few px off-axis, so uneven/slanted ladder heads mint a clean CLIMB step-off edge instead of only ballistic top jump-offs
+    static final int GRAPH_VERSION = 61; // 51: kinetic slippery model + snowshoes; 52: brake-to-stop landings; 53: glide-unless-edge stop policy (slipperyStopDir); 56: uncap straight-drop launch windows (full droppable span, no +/-20 fragmentation); 57: remove the (empirically wrong) 300px down-jump drop cap - down-jumps fall until landing; 58: rope-grab reach counts descent below the ledge (mid-rope jump-grabs from adjacent platforms); 59: fall-sim caps to map height not 1500ms - long single-fall descents (tall shafts: Ellinia tree, Perion) now generate DROP/JUMP/ROPE edges; 60: re-cap drops for organic descent - walk-offs capped at MAX_DROP_PX, down-jumps at the tighter DOWN_JUMP_MAX_DROP_PX, and down-jumps carry DOWN_JUMP_COST_PENALTY_MS so the pathfinder prefers ropes/walk-offs over plummeting an entire vertical map; 61: widened rope top-exit probe (BotPhysicsEngine.findTopExitLanding) - accept a step-off foothold slightly above/below the rope top and a few px off-axis, so uneven/slanted ladder heads mint a clean CLIMB step-off edge instead of only ballistic top jump-offs
 
     // Drop caps for organic descent (re-added; v57 had removed the old single cap). A bot must
     // never plummet down a whole vertical map. Two distinct downward moves, treated differently:
@@ -84,7 +84,7 @@ final class BotNavigationGraphProvider {
         return thread;
     });
 
-    private record GraphCacheKey(int mapId, int totalSpeedStat, int totalJumpStat, boolean snowShoes) {
+    record GraphCacheKey(int mapId, int totalSpeedStat, int totalJumpStat, boolean snowShoes) {
         static GraphCacheKey from(int mapId, BotMovementProfile profile) {
             BotMovementProfile effective = profile == null ? BotMovementProfile.base() : profile;
             return new GraphCacheKey(mapId, effective.totalSpeedStat(), effective.totalJumpStat(),
@@ -538,10 +538,7 @@ final class BotNavigationGraphProvider {
             if (!(loaded instanceof BotNavigationGraph graph)) {
                 return null;
             }
-            if (graph.version != GRAPH_VERSION
-                    || graph.mapId != key.mapId()
-                    || graph.movementProfile.totalSpeedStat() != key.totalSpeedStat()
-                    || graph.movementProfile.totalJumpStat() != key.totalJumpStat()) {
+            if (!isGraphFor(graph, key)) {
                 return null;
             }
             seedCachedFootholdCollisionIds(graph);
@@ -564,8 +561,24 @@ final class BotNavigationGraphProvider {
         }
     }
 
-    private static Path graphFile(GraphCacheKey key) {
-        return CACHE_DIR.resolve(key.mapId() + "-s" + key.totalSpeedStat() + "-j" + key.totalJumpStat() + ".bin");
+    /**
+     * The cache file of one key. Snowshoes get their own suffix: a snowshoe graph only survives
+     * {@link #canonicalProfile} on slippery maps, where it differs from the plain graph, and the two used to
+     * share one file - whichever was saved last was loaded for both. The plain name is unchanged, so existing
+     * plain files stay valid; a snowshoe graph left under a plain name is refused by {@link #isGraphFor}.
+     */
+    static Path graphFile(GraphCacheKey key) {
+        return CACHE_DIR.resolve(key.mapId() + "-s" + key.totalSpeedStat() + "-j" + key.totalJumpStat()
+                + (key.snowShoes() ? "-ss" : "") + ".bin");
+    }
+
+    /** Whether a loaded graph was built for exactly this key, under the current graph version. */
+    static boolean isGraphFor(BotNavigationGraph graph, GraphCacheKey key) {
+        return graph.version == GRAPH_VERSION
+                && graph.mapId == key.mapId()
+                && graph.movementProfile.totalSpeedStat() == key.totalSpeedStat()
+                && graph.movementProfile.totalJumpStat() == key.totalJumpStat()
+                && graph.movementProfile.snowShoes() == key.snowShoes();
     }
 
     private static BotNavigationGraph buildGraph(MapleMap map, BotMovementProfile movementProfile) {
