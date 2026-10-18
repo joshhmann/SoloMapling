@@ -31,7 +31,6 @@ import static soloMapling.ArtificialPlayer.BotCommandsPack.WarpCommands.botEnter
 import static soloMapling.ArtificialPlayer.BotCommandsPack.WarpCommands.botExitFMRoom;
 import static soloMapling.ArtificialPlayer.BotDialogueHandler.getRandomResolvedLine;
 import static soloMapling.server.SoloMaplingUtilities.generateRandomNumber;
-import static soloMapling.ArtificialPlayer.BotHelpers.convertItemIdToName;
 import static soloMapling.ArtificialPlayer.BotLogic.isInsideFM;
 import static soloMapling.ArtificialPlayer.BotLogic.isInsideFMRooms;
 import static soloMapling.ArtificialPlayer.BotLogic.isPointNear;
@@ -314,8 +313,6 @@ public class FMBot extends BotSM {
                 continue;
             }
             Item thisItem = pItem.getItem();
-            int itemId = thisItem.getItemId();
-            String itemName = convertItemIdToName(itemId);
             int itemPrice = pItem.getPrice(); // item's FM price
             Integer itemMarketValue = ItemUtilities.getItemMarketValue(thisItem);
             Boolean purchase = shouldPurchaseItem(itemPrice, itemMarketValue);
