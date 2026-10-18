@@ -323,9 +323,9 @@ public class HiredMerchant extends AbstractMapObject {
                     }
 
                     Character owner = Server.getInstance().getWorld(world).getPlayerStorage().getCharacterByName(ownerName);
-                    if (owner != null) {
+                    if (owner != null && !isBot(owner)) {
                         owner.addMerchantMesos(price);
-                    } else {
+                    } else if (owner == null) {   // a bot owner has no characters row, so its proceeds are dropped: see finding 4 of the value-path audit
                         try (Connection con = DatabaseConnection.getConnection()) {
                             long merchantMesos = 0;
                             try (PreparedStatement ps = con.prepareStatement("SELECT MerchantMesos FROM characters WHERE id = ?")) {
@@ -866,7 +866,7 @@ public class HiredMerchant extends AbstractMapObject {
             Character owner = Server.getInstance().getWorld(world).getPlayerStorage().getCharacterByName(ownerName);
             if (owner != null && !isBot(owner)) {
                 owner.addMerchantMesos(price);
-            } else {
+            } else if (owner == null) {   // a bot owner has no characters row, so its proceeds are dropped: see finding 4 of the value-path audit
                 try (Connection con = DatabaseConnection.getConnection()) {
                     long merchantMesos = 0;
                     try (PreparedStatement ps = con.prepareStatement("SELECT MerchantMesos FROM characters WHERE id = ?")) {
