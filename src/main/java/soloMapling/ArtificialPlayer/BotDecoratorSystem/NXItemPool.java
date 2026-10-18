@@ -1,5 +1,6 @@
 package soloMapling.ArtificialPlayer.BotDecoratorSystem;
 
+import soloMapling.itemPool.EquipOmitList;
 import com.esotericsoftware.yamlbeans.YamlReader;
 import constants.inventory.EquipType;
 import soloMapling.itemPool.EquipMetadataCache;
@@ -198,7 +199,9 @@ public class NXItemPool {
 
         List<PoolItem> eligible = new ArrayList<>(list.size());
         for (PoolItem item : list) {
-            if (item.gender == GENDER_UNISEX || item.gender == botGender) {
+            // The central omit list covers the NX overlay too: a broken cosmetic crashes a client as surely as
+            // broken gear (bot-persistence ticket 20).
+            if ((item.gender == GENDER_UNISEX || item.gender == botGender) && !EquipOmitList.isOmitted(item.id)) {
                 eligible.add(item);
             }
         }
