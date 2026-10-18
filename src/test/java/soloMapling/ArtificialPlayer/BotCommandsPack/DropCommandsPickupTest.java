@@ -82,4 +82,22 @@ class DropCommandsPickupTest {
         assertTrue(bot.getInventory(InventoryType.ETC).listById(4001000).isEmpty(),
                 "a drop that does not fit stays on the floor for someone who can hold it");
     }
+
+    @Test
+    void aConjuredDropIsRemovedWithoutCreditingAnything() {
+        Character bot = newBot();
+        MapleMap map = mock(MapleMap.class);
+        bot.setMap(map);
+        MapItem prop = drop();
+        when(prop.isConjured()).thenReturn(true);
+        when(prop.getMeso()).thenReturn(300);   // even a prop that looks valuable credits nothing
+
+        DropCommands.botLootSingleDrop(bot, prop);
+
+        assertEquals(0, bot.getMeso(), "a prop is a display artifact and must never reach the ledger");
+        InOrder order = inOrder(prop, map);
+        order.verify(prop).lockItem();
+        order.verify(map).pickItemDrop(any(Packet.class), eq(prop));
+        order.verify(prop).unlockItem();
+    }
 }

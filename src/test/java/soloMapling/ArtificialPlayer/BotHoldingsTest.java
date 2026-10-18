@@ -12,6 +12,7 @@ import server.maps.MapItem;
 import server.maps.MapleMap;
 
 import java.awt.Point;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -19,10 +20,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 // The bot accounting path, exercised on a real bot Character (a real Character carrying the shared headless
 // BotClient, exactly what a live bot is) with real Item/Inventory objects - nothing stands in for the bot, its
@@ -42,6 +47,8 @@ class BotHoldingsTest {
     // slot max (100), the same value the live server gives an item without an explicit slotMax.
     private static final int POTION = 2000000;
     private static final int OTHER_POTION = 2000001;
+    // An equip by id; the EQUIP branch of the inventory keeps the instance itself (equips never stack).
+    private static final int WEAPON = 1302000;
 
     private static Character newBot() {
         return Character.getDefault(new BotClient(0, 0));
@@ -57,6 +64,12 @@ class BotHoldingsTest {
 
     private static MapItem mesoDropOf(Character bot, int meso) {
         return new MapItem(meso, new Point(0, 0), bot, bot, bot.getClient(), (byte) 2, true);
+    }
+
+    private static MapItem conjuredDropOf(Character bot, Item item) {
+        MapItem drop = itemDropOf(bot, item);
+        drop.setConjured(true);
+        return drop;
     }
 
     // Fills every slot of an inventory with a distinct item id (so nothing can stack) starting at firstItemId,
@@ -182,5 +195,120 @@ class BotHoldingsTest {
         ArgumentCaptor<Integer> droppedMeso = ArgumentCaptor.forClass(Integer.class);
         verify(map, times(1)).spawnMesoDrop(droppedMeso.capture(), any(), eq(bot), eq(bot), eq(true), eq((byte) 2), eq((short) 0));
         assertEquals(300, droppedMeso.getValue());
+    }
+
+    @Test
+    void conjuredDropIsNeverCredited() {
+        Character bot = newBot();
+        MapItem itemProp = conjuredDropOf(bot, itemOf(POTION, 5));
+        MapItem mesoProp = mesoDropOf(bot, 1234);
+        mesoProp.setConjured(true);
+
+        assertFalse(BotHoldings.canCreditDrop(bot, itemProp));
+        assertFalse(BotHoldings.creditDrop(bot, itemProp));
+        assertFalse(BotHoldings.canCreditDrop(bot, mesoProp));
+        assertFalse(BotHoldings.creditDrop(bot, mesoProp));
+
+        assertFalse(itemProp.isPickedUp());
+        assertFalse(mesoProp.isPickedUp());
+        assertEquals(0, bot.getMeso());
+        assertTrue(bot.getInventory(InventoryType.USE).listById(POTION).isEmpty());
+    }
+
+    @Test
+    void payOutHandsOverOnlyWhatTheBotHolds() {
+        Character bot = newBot();
+        Character winner = newBot();
+        BotHoldings.grantItem(bot, itemOf(POTION, 3));
+
+        MapleMap map = mock(MapleMap.class);
+        bot.setMap(map);
+        List<MapItem> drops = new ArrayList<>();
+        when(map.spawnItemDropNoExpire(any(), any(), any(), any(), anyBoolean(), anyBoolean(), anyBoolean()))
+                .thenAnswer(invocation -> {
+                    Item item = invocation.getArgument(2);
+                    Character owner = invocation.getArgument(1);
+                    MapItem drop = spy(new MapItem(item, invocation.getArgument(3), invocation.getArgument(0),
+                            owner, owner.getClient(), (byte) 0, false));
+                    drop.setConjured(invocation.getArgument(6));
+                    drops.add(drop);
+                    return drop;
+                });
+
+        assertEquals(3, BotHoldings.payOut(bot, POTION, 5, winner, new Point(20, 20)));
+
+        assertTrue(bot.getInventory(InventoryType.USE).listById(POTION).isEmpty(),
+                "the bot cannot hand over more than it holds");
+        assertEquals(3, drops.size());
+        for (MapItem drop : drops) {
+            assertFalse(drop.isConjured(), "a paid-out unit is real value, not a prop");
+            assertEquals(winner.getId(), drop.getOwnerId());
+            assertEquals(POTION, drop.getItemId());
+            assertEquals(1, drop.getItem().getQuantity());
+            verify(drop).setPermanentOwner(true);   // owner-only, no-expire, same as the old payout
+        }
+
+        // The debit is already in the ledger: a later settle must not hand the paid-out units back.
+        BotHoldings.settle(bot);
+        verify(map, never()).spawnItemDrop(any(), any(), any(), any(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    void payOutPaysNothingWhenTheBotHoldsNone() {
+        Character bot = newBot();
+        MapleMap map = mock(MapleMap.class);
+        bot.setMap(map);
+
+        assertEquals(0, BotHoldings.payOut(bot, POTION, 5, newBot(), new Point(0, 0)));
+
+        verify(map, never()).spawnItemDropNoExpire(any(), any(), any(), any(), anyBoolean(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    void payOutItemHandsTheExactHeldInstanceBack() {
+        Character bot = newBot();
+        Character recipient = newBot();
+        // An equip: the inventory keeps the very instance handed to it (equips never stack), which is the seam
+        // this method exists for - the scrolled weapon TutorialBot hands back is that object, not a re-created id.
+        Item weapon = itemOf(WEAPON, 1);
+        BotHoldings.grantItem(bot, weapon);
+
+        MapleMap map = mock(MapleMap.class);
+        bot.setMap(map);
+        List<MapItem> drops = new ArrayList<>();
+        when(map.spawnItemDropNoExpire(any(), any(), any(), any(), anyBoolean(), anyBoolean(), anyBoolean()))
+                .thenAnswer(invocation -> {
+                    Item item = invocation.getArgument(2);
+                    Character owner = invocation.getArgument(1);
+                    MapItem drop = spy(new MapItem(item, invocation.getArgument(3), invocation.getArgument(0),
+                            owner, owner.getClient(), (byte) 0, false));
+                    drops.add(drop);
+                    return drop;
+                });
+
+        assertTrue(BotHoldings.payOutItem(bot, weapon, recipient, new Point(15, 15)));
+
+        assertEquals(1, drops.size());
+        assertSame(weapon, drops.get(0).getItem(), "the same scrolled instance must come back, not a copy");
+        assertFalse(drops.get(0).isConjured(), "a handed-back real item stays creditable for the player");
+        assertEquals(recipient.getId(), drops.get(0).getOwnerId());
+        verify(drops.get(0)).setPermanentOwner(true);
+        assertTrue(bot.getInventory(InventoryType.EQUIP).listById(WEAPON).isEmpty(),
+                "the bot no longer holds what it handed back");
+
+        // The removal already landed in the ledger: a later settle must not hand the weapon back a second time.
+        BotHoldings.settle(bot);
+        verify(map, never()).spawnItemDrop(any(), any(), any(), any(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    void payOutItemRefusesAnItemTheBotDoesNotHold() {
+        Character bot = newBot();
+        MapleMap map = mock(MapleMap.class);
+        bot.setMap(map);
+
+        assertFalse(BotHoldings.payOutItem(bot, itemOf(WEAPON, 1), newBot(), new Point(0, 0)));
+
+        verify(map, never()).spawnItemDropNoExpire(any(), any(), any(), any(), anyBoolean(), anyBoolean(), anyBoolean());
     }
 }

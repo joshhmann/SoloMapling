@@ -11,6 +11,7 @@ import server.ItemInformationProvider;
 import server.maps.MapItem;
 import server.maps.MapleMap;
 
+import java.awt.Point;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -109,8 +110,8 @@ public final class BotHoldings {
      * shop). The caller must leave the drop on the floor in that case instead of deleting it.
      */
     public static boolean creditDrop(Character bot, MapItem drop) {
-        if (drop == null || drop.isPickedUp()) {
-            return false;
+        if (drop == null || drop.isPickedUp() || drop.isConjured()) {
+            return false;   // a prop stands for no value taken from the world: the ledger must never take it
         }
         if (drop.getMeso() > 0) {
             return grantMeso(bot, drop.getMeso());
@@ -124,7 +125,7 @@ public final class BotHoldings {
 
     /** Non-mutating counterpart of {@link #creditDrop}: true when the bot could take this drop right now. */
     public static boolean canCreditDrop(Character bot, MapItem drop) {
-        if (drop == null || drop.isPickedUp()) {
+        if (drop == null || drop.isPickedUp() || drop.isConjured()) {
             return false;
         }
         if (drop.getMeso() > 0) {
@@ -225,6 +226,99 @@ public final class BotHoldings {
         bot.gainMeso(-amount, false, false, false);
         ledger(bot).addMeso(-amount);
         return true;
+    }
+
+    /**
+     * Hands units of an item the bot is holding out to someone else: each unit leaves the bot's inventory and its
+     * ledger and lands on the floor of the bot's map owned by the recipient. This is how a casino table pays a
+     * winning hand out of the bets it collected - the house pays what it holds and mints nothing - so the amount
+     * paid is capped by the bot's stock. The debit is ledgered and the units are destocked before the drops are
+     * created, so a failure between the two destroys value rather than minting it.
+     *
+     * @return units actually paid; 0 when the bot holds none of the item, has no map, or quantity is not positive
+     */
+    public static int payOut(Character bot, int itemId, int quantity, Character recipient, Point position) {
+        if (quantity <= 0) {
+            return 0;
+        }
+        MapleMap map = bot.getMap();
+        if (map == null) {
+            return 0;
+        }
+        Inventory inv = bot.getInventory(ItemConstants.getInventoryType(itemId));
+        int paid = 0;
+        inv.lockInventory();
+        try {
+            for (Item stack : inv.listById(itemId)) {
+                if (paid >= quantity) {
+                    break;
+                }
+                int take = Math.min(stack.getQuantity(), quantity - paid);
+                inv.removeItem(stack.getPosition(), (short) take, false);
+                paid += take;
+            }
+        } finally {
+            inv.unlockInventory();
+        }
+        if (paid == 0) {
+            return 0;   // the house holds none of this denomination: it pays less instead of minting chips
+        }
+        ledger(bot).addItem(itemId, -paid);
+        for (int i = 0; i < paid; i++) {
+            MapItem drop = map.spawnItemDropNoExpire(bot, recipient, new Item(itemId, (short) 0, (short) 1, -1),
+                    position, false, false, false);
+            if (drop != null) {
+                drop.setPermanentOwner(true);
+            }
+        }
+        return paid;
+    }
+
+    /**
+     * Hands one specific held instance to someone else: that exact item leaves the bot's inventory and ledger and
+     * lands on the floor of the bot's map owned by the recipient. Used where the instance itself carries value the
+     * recipient expects - TutorialBot hands back the real weapon it looted and scrolled, whose stats and owner
+     * name live on that object - so the drop is the instance, not a copy re-created from its id. This keeps the
+     * bot from holding aliases of what it just gave away, which {@link #settle(Character)} would otherwise hand
+     * to the world a second time.
+     *
+     * <p>The removal is ledgered before the drop is created, so a failure between the two destroys value rather
+     * than minting it.
+     *
+     * @return true when the instance left the bot and landed on the floor; false when the bot no longer holds
+     *         that instance or has no map, leaving the item untouched
+     */
+    public static boolean payOutItem(Character bot, Item item, Character recipient, Point position) {
+        if (item == null) {
+            return false;
+        }
+        MapleMap map = bot.getMap();
+        if (map == null) {
+            return false;
+        }
+        Inventory inv = bot.getInventory(item.getInventoryType());
+        Item held = null;
+        inv.lockInventory();
+        try {
+            for (Item candidate : inv.list()) {
+                if (candidate == item) {
+                    held = candidate;
+                    break;
+                }
+            }
+            if (held == null) {
+                return false;   // the bot already gave this instance away (or never held it)
+            }
+            inv.removeSlot(held.getPosition());
+        } finally {
+            inv.unlockInventory();
+        }
+        ledger(bot).addItem(held.getItemId(), -held.getQuantity());
+        MapItem drop = map.spawnItemDropNoExpire(bot, recipient, held, position, false, false, false);
+        if (drop != null) {
+            drop.setPermanentOwner(true);
+        }
+        return drop != null;
     }
 
     /**

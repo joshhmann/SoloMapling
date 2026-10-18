@@ -27,6 +27,11 @@ import static soloMapling.itemPool.GachaFillerSystem.getRandomMesoGachaFiller;
      */
 
 public class CustomReactor {
+    /*
+        Every drop this class fabricates is a prop: it stands for no value taken out of real reactor content,
+        so it goes out with conjured=true and a bot loot removes it without crediting. What a reactor drops,
+        where, how many, and with what delay is unchanged.
+     */
     private static final int dropSprayLength = 2; // length from center of item drop spray size (Gachapon drop vfx effect)
     private static final int dropSprayFullWidth = dropSprayLength * 2; // full width of item drop spray
     private static final int itemDropOffset = 30; // space between each item drop
@@ -88,7 +93,7 @@ public class CustomReactor {
             drop = (Equip) ItemInformationProvider.getInstance().getEquipById(itemId);
         }
         Point dropPos = new Point(reactor.getPosition());
-        map.dropFromReactor(owner, reactor, drop, dropPos, (short) 0, (short) 0);
+        map.dropFromReactor(owner, reactor, drop, dropPos, (short) 0, (short) 0, true);
     }
 
     /*
@@ -140,7 +145,7 @@ public class CustomReactor {
             if (d.itemId == 0) {
                 int mesoDrop = (1000 * owner.getWorldServer().getMesoRate());
                 reactor.getMap().spawnMesoDrop(mesoDrop, reactor.getMap().calcDropPos(dropPos,
-                        reactor.getPosition()), reactor, owner, false, (byte) 2, (short) 0);
+                        reactor.getPosition()), reactor, owner, false, (byte) 2, (short) 0, true);
             } else {
                 Item drop;
 
@@ -149,7 +154,7 @@ public class CustomReactor {
                 } else {
                     drop = (Equip) ii.getEquipById(d.itemId);
                 }
-                reactor.getMap().dropFromReactor(owner, reactor, drop, dropPos, (short) d.questid, (short) 0);
+                reactor.getMap().dropFromReactor(owner, reactor, drop, dropPos, (short) d.questid, (short) 0, true);
             }
         }
     }
@@ -189,7 +194,7 @@ public class CustomReactor {
             if (d.itemId == 0) {
                 int mesoDrop = getRandomMesoGachaFiller();
                 reactor.getMap().spawnMesoDrop(mesoDrop, reactor.getMap().calcDropPos(center2, reactor.getPosition()), reactor, owner,
-                        false, (byte) 2, delay);
+                        false, (byte) 2, delay, true);
             } else {
                 final Item drop;
                 if (ItemConstants.getInventoryType(d.itemId) != InventoryType.EQUIP) {
@@ -198,7 +203,7 @@ public class CustomReactor {
                     ItemInformationProvider ii = ItemInformationProvider.getInstance();
                     drop = (Equip) ii.getEquipById(d.itemId);
                 }
-                reactor.getMap().dropFromReactor(owner, reactor, drop, center2, (short) d.questid, delay);
+                reactor.getMap().dropFromReactor(owner, reactor, drop, center2, (short) d.questid, delay, true);
             }
             delay += 200;
             dropIndex++;
@@ -215,7 +220,7 @@ public class CustomReactor {
             if (d.itemId == 0) {
                 int mesoDrop = 1000 * worldMesoRate;
                 reactor.getMap().spawnMesoDrop(mesoDrop, reactor.getMap().calcDropPos(dropPos, reactor.getPosition()), reactor, owner,
-                        false, (byte) 2, delay);
+                        false, (byte) 2, delay, true);
             } else {
                 final Item drop;
                 if (ItemConstants.getInventoryType(d.itemId) != InventoryType.EQUIP) {
@@ -224,7 +229,7 @@ public class CustomReactor {
                     ItemInformationProvider ii = ItemInformationProvider.getInstance();
                     drop = (Equip) ii.getEquipById(d.itemId);
                 }
-                reactor.getMap().dropFromReactor(owner, reactor, drop, dropPos, (short) d.questid, delay);
+                reactor.getMap().dropFromReactor(owner, reactor, drop, dropPos, (short) d.questid, delay, true);
             }
 
             dropPos.x += 25;

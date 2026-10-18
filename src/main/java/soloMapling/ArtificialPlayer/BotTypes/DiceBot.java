@@ -3,6 +3,7 @@ package soloMapling.ArtificialPlayer.BotTypes;
 import client.Character;
 import soloMapling.ArtificialPlayer.BotCommandsPack.DropCommands;
 import soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands;
+import soloMapling.ArtificialPlayer.BotHoldings;
 import soloMapling.ArtificialPlayer.BotLogic;
 import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotCommands;
@@ -209,7 +210,10 @@ public class DiceBot extends BotSM {
             for (int x = 0; x < mapItem.getItem().getQuantity(); x++) {
                 Point center = getInteractors().getRespondant().getPosition();
                 center = adjustCenterPositionXAxis(center, x, 2, 4, 20);
-                DropCommands.botThrowItem(getChr(), mapItem.getItemId(), center);
+                // Same pot rule as the blackjack table: the house pays out of the bets it collected, never mints.
+                if (BotHoldings.payOut(getChr(), mapItem.getItemId(), 1, getInteractors().getRespondant(), center) == 0) {
+                    return;
+                }
                 try {
                     TimeUnit.MILLISECONDS.sleep(100);
                 } catch (InterruptedException e) {

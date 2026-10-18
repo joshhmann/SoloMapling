@@ -7,6 +7,7 @@ import soloMapling.ArtificialPlayer.BotCommandsPack.DropCommands;
 import soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands;
 import soloMapling.ArtificialPlayer.BotCustomization;
 import soloMapling.ArtificialPlayer.BotDialogueHandler;
+import soloMapling.ArtificialPlayer.BotHoldings;
 import soloMapling.ArtificialPlayer.BotLogic;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.ChatMessage;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.MessageQueue;
@@ -555,6 +556,21 @@ public class BlackjackDealerBot extends BotSM {
         }
     }
 
+    /**
+     * Pays one unit of a winning hand: a bot seat is paid a display-only prop (a bot seat moves no value at all),
+     * a real player is paid out of the table's collected bets.
+     *
+     * @return true when the unit moved (a bot seat's prop always moves; a real player's unit moves only when the
+     *         house still holds that denomination, so a short house pays less instead of minting chips)
+     */
+    static boolean payUnit(Character dealer, Character winner, boolean botSeat, int itemId, Point at) {
+        if (botSeat) {
+            DropCommands.botThrowItemToOwner(dealer, itemId, at, winner);
+            return true;
+        }
+        return BotHoldings.payOut(dealer, itemId, 1, winner, at) == 1;
+    }
+
     // Deliberate blocking beats on a dedicated virtual thread (runAsync): the
     // payout spray length is data-driven (bet quantity), so it can't be a chain.
     private void payWinner(BlackjackPlayer player, boolean blackjackBonus) {
@@ -569,7 +585,11 @@ public class BlackjackDealerBot extends BotSM {
                 for (int i = 0; i < quantity; i++) {
                     Point center = new Point(player.getOriginLocation());
                     center = adjustCenterPositionXAxis(center, i, 2, 4, 20);
-                    DropCommands.botThrowItemToOwner(getChr(), mapItem.getItemId(), center, player.getCharacter());
+                    if (!payUnit(getChr(), player.getCharacter(), isAI, mapItem.getItemId(), center)) {
+                        log("Blackjack house short of item " + mapItem.getItemId() + " paying "
+                                + player.getCharacter().getName() + "; rest of the pot stays with the dealer");
+                        break;
+                    }
                     blockingSleep(100 + random.nextInt(75));
                 }
             }

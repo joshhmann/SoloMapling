@@ -22,6 +22,12 @@ import static soloMapling.ArtificialPlayer.BotLogic.checkForItemsOnFloor;
 
 public class DropCommands {
 
+    // Everything this class drops is fabricated - items with BotLogic.generateCleanItem*, meso from a literal - so
+    // every drop it creates is a prop: MapItem.setConjured(true). A prop stands for no value taken from the world:
+    // bot loot may remove it, but it is never credited and never looted for value. The one exception is an item
+    // the caller supplies rather than this class fabricating (botThrowEquip(Character, Equip, Point)), which is
+    // real value that must stay creditable.
+
     /*
         // Drop type 0 = 0 is DROP_USEROWN = 15 second delay
         // 2 = (DROP_NOOWN) = can loot instantly
@@ -41,21 +47,25 @@ public class DropCommands {
 
     // Meso, Equip, Item, Item Qty - FFA Player Drop - Anyone can loot
 
+    // The GM dev command that hands a real player meso (ArtificialPlayerCommand:1033) drops nothing itself, so it
+    // is unaffected by the prop rule: a real player still collects these drops (Character.addFromDrop ignores the
+    // flag); only bots decline to credit them.
 
     public static void botDropMeso(Character fakechar, int meso) {
-        fakechar.getMap().spawnMesoDrop(meso, fakechar.getPosition(), fakechar, fakechar, true, (byte) 2, (short) 0);
+        fakechar.getMap().spawnMesoDrop(meso, fakechar.getPosition(), fakechar, fakechar, true, (byte) 2, (short) 0,
+                true);
     }
 
     public static void botDropEquip(Character fakechar, int itemId) {
         Item itemToDrop = BotLogic.generateCleanItemEquip(itemId);
         fakechar.getMap().spawnItemDrop(fakechar, fakechar, itemToDrop,
-                fakechar.getPosition(), true, true);
+                fakechar.getPosition(), true, true, true);
     }
 
     public static void botDropItem(Character fakechar, int itemId) {
         Item itemToDrop = BotLogic.generateCleanItem(itemId);
         fakechar.getMap().spawnItemDrop(fakechar, fakechar, itemToDrop,
-                fakechar.getPosition(), true, true);
+                fakechar.getPosition(), true, true, true);
     }
 
     private static final long PICKUP_GRACE_PERIOD_MS = 3000;
@@ -63,7 +73,7 @@ public class DropCommands {
     public static MapItem botDropItemWithExpiry(Character fakechar, int itemId, boolean isEquip, long expiryMs) {
         Item itemToDrop = isEquip ? BotLogic.generateCleanItemEquip(itemId) : BotLogic.generateCleanItem(itemId);
         MapItem drop = fakechar.getMap().spawnItemDropNoExpire(fakechar, fakechar, itemToDrop,
-                fakechar.getPosition(), true, true);
+                fakechar.getPosition(), true, true, true);
         if (drop != null && expiryMs > 0) {
             TimerManager.getInstance().schedule(() -> {
                 if (BotShutdown.isQuiesced() || drop.isPickedUp()) return;
@@ -85,44 +95,46 @@ public class DropCommands {
     public static void botDropItemQty(Character fakechar, int itemId, int qty) {
         Item itemToDrop = BotLogic.generateCleanItemWithQty(itemId, qty);
         fakechar.getMap().spawnItemDrop(fakechar, fakechar, itemToDrop,
-                fakechar.getPosition(), true, true);
+                fakechar.getPosition(), true, true, true);
     }
 
     // Meso, Equip, Item, Item Qty - Throw to specific location - Anyone can loot
     // Set playerDrop = false for pet-lootable (by everybody I think)
 
     public static void botThrowMeso(Character fakechar, int meso, Point throwPos) {
-        fakechar.getMap().spawnMesoDrop(meso, throwPos, fakechar, fakechar, false, (byte) 2, (short) 0);
+        fakechar.getMap().spawnMesoDrop(meso, throwPos, fakechar, fakechar, false, (byte) 2, (short) 0, true);
     }
 
     public static void botThrowEquip(Character fakechar, Equip eq, Point throwPos) {
+        // The caller supplies this equip, so it is not fabricated here: real value that must stay creditable
+        // (conjured = false). The int overload below fabricates, so it stays a prop.
         fakechar.getMap().spawnItemDrop(fakechar, fakechar, eq,
-                throwPos, true, false);
+                throwPos, true, false, false);
     }
 
     public static void botThrowEquip(Character fakechar, int itemId, Point throwPos) {
         Item itemToDrop = BotLogic.generateCleanItemEquip(itemId);
         fakechar.getMap().spawnItemDrop(fakechar, fakechar, itemToDrop,
-                throwPos, true, false);
+                throwPos, true, false, true);
     }
 
     public static Item botThrowItem(Character fakechar, int itemId, Point throwPos) {
         Item itemToDrop = BotLogic.generateCleanItem(itemId);
         fakechar.getMap().spawnItemDrop(fakechar, fakechar, itemToDrop,
-                throwPos, true, false);
+                throwPos, true, false, true);
         return itemToDrop;
     }
 
     public static MapItem botThrowItemNoExpire(Character fakechar, int itemId, Point throwPos) {
         Item itemToDrop = BotLogic.generateCleanItem(itemId);
         return fakechar.getMap().spawnItemDropNoExpire(fakechar, fakechar, itemToDrop,
-                throwPos, true, false);
+                throwPos, true, false, true);
     }
 
     public static MapItem botThrowItemNoExpireOwnerOnly(Character fakechar, int itemId, Point throwPos) {
         Item itemToDrop = BotLogic.generateCleanItem(itemId);
         MapItem drop = fakechar.getMap().spawnItemDropNoExpire(fakechar, fakechar, itemToDrop,
-                throwPos, false, false);
+                throwPos, false, false, true);
         if (drop != null) drop.setPermanentOwner(true);
         return drop;
     }
@@ -130,20 +142,20 @@ public class DropCommands {
     public static void botDropItemQtyOwnerOnly(Character fakechar, int itemId, int qty) {
         Item itemToDrop = BotLogic.generateCleanItemWithQty(itemId, qty);
         MapItem drop = fakechar.getMap().spawnItemDropNoExpire(fakechar, fakechar, itemToDrop,
-                fakechar.getPosition(), false, false);
+                fakechar.getPosition(), false, false, true);
         if (drop != null) drop.setPermanentOwner(true);
     }
 
     public static void botThrowItemQty(Character fakechar, int itemId, int qty, Point throwPos) {
         Item itemToDrop = BotLogic.generateCleanItemWithQty(itemId, qty);
         fakechar.getMap().spawnItemDrop(fakechar, fakechar, itemToDrop,
-                throwPos, true, false);
+                throwPos, true, false, true);
     }
 
     public static void botThrowItemToOwner(Character dropper, int itemId, Point throwPos, Character owner) {
         Item itemToDrop = BotLogic.generateCleanItem(itemId);
         MapItem drop = dropper.getMap().spawnItemDropNoExpire(dropper, owner, itemToDrop,
-                throwPos, false, false);
+                throwPos, false, false, true);
         if (drop != null) drop.setPermanentOwner(true);
     }
 
@@ -152,25 +164,25 @@ public class DropCommands {
     // playerDrop false = pet lootable
 
     public static void botThrowToOwnerMeso(Character fakechar, int meso, Character owner) {
-        fakechar.getMap().spawnMesoDrop(meso, owner.getPosition(), fakechar, owner, false, (byte) 0, (short) 0);
+        fakechar.getMap().spawnMesoDrop(meso, owner.getPosition(), fakechar, owner, false, (byte) 0, (short) 0, true);
     }
 
     public static void botThrowToOwnerEquip(Character fakechar, int itemId, Character owner) {
         Item itemToDrop = BotLogic.generateCleanItemEquip(itemId);
         fakechar.getMap().spawnItemDrop(fakechar, owner, itemToDrop,
-                owner.getPosition(), false, false);
+                owner.getPosition(), false, false, true);
     }
 
     public static void botThrowToOwnerItem(Character fakechar, int itemId, Character owner) {
         Item itemToDrop = BotLogic.generateCleanItem(itemId);
         fakechar.getMap().spawnItemDrop(fakechar, owner, itemToDrop,
-                owner.getPosition(), false, false);
+                owner.getPosition(), false, false, true);
     }
 
     public static void botThrowToOwnerItemQty(Character fakechar, int itemId, int qty, Character owner) {
         Item itemToDrop = BotLogic.generateCleanItemWithQty(itemId, qty);
         fakechar.getMap().spawnItemDrop(fakechar, owner, itemToDrop,
-                owner.getPosition(), false, false);
+                owner.getPosition(), false, false, true);
     }
 
     // Throwing multiple items in a row (for display purposes)
@@ -275,6 +287,13 @@ public class DropCommands {
         mapItem.lockItem();
         try {
             if (mapItem.isPickedUp()) {
+                return;
+            }
+            if (mapItem.isConjured()) {
+                // A prop is a display artifact: no value leaves the world with it, so it is removed exactly like
+                // a normal pickup but credited nowhere. Leaving it would only make bots walk to it forever.
+                final Packet pickupPacket = PacketCreator.removeItemFromMap(mapItem.getObjectId(), 2, fakechar.getId());
+                fakechar.getMap().pickItemDrop(pickupPacket, mapItem);
                 return;
             }
             if (!BotHoldings.creditDrop(fakechar, mapItem)) {
