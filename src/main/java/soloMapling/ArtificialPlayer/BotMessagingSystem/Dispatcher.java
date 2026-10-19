@@ -1,6 +1,7 @@
 package soloMapling.ArtificialPlayer.BotMessagingSystem;
 
 import client.Character;
+import soloMapling.ArtificialPlayer.BotConversation;
 import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotTypes.SocialBot;
 import soloMapling.server.BotShutdown;
@@ -93,6 +94,14 @@ public class Dispatcher implements Runnable {
         if (CharacterStorage.checkIfRespondant(sender) || CharacterStorage.checkIfInquirer(sender)) {
             return false;
         }
+        // Mid-chat with a bot that has no menu: the next line is for that bot (ticket 21).
+        int partner = BotConversation.partnerOf(sender.getId());
+        BotSM partnerBot = partner < 0 ? null : getBotById(partner);
+        if (partnerBot != null && !hasChatMenu(partnerBot) && partnerBot.getChr() != null
+                && partnerBot.getChr().getMapId() == sender.getMapId()) {
+            BotConversation.say(partnerBot, sender, message.getContent(), null);
+            return true;
+        }
         if (soloMapling.ArtificialPlayer.BotBuffRequestSystem.BotBuffRequestHandler.isBuffRequest(message.getContent())) {
             return true; // "hs pls": the buff handler already has the nearest eligible bot cast it
         }
@@ -129,6 +138,22 @@ public class Dispatcher implements Runnable {
             }
         }));
         return true;
+    }
+
+    /** Whether this bot type shows a menu of its own (it overrides {@code BotSM.displayCommands}). */
+    private static final ClassValue<Boolean> HAS_MENU = new ClassValue<>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            try {
+                return type.getMethod("displayCommands", Character.class).getDeclaringClass() != BotSM.class;
+            } catch (NoSuchMethodException e) {
+                return false;
+            }
+        }
+    };
+
+    static boolean hasChatMenu(BotSM bot) {
+        return HAS_MENU.get(bot.getClass());
     }
 
     private void askFirst(int botId, ChatMessage message, long now) {
@@ -184,6 +209,13 @@ public class Dispatcher implements Runnable {
         if (bot instanceof SocialBot socialBot) {
             handleSocialBotSession(socialBot, message);
             return;
+        }
+        if (!hasChatMenu(bot)) {
+            // bot-persistence ticket 21: a bot with no menu of its own (a town wanderer...) simply talks back.
+            String said = message.getContent().replace(bot.getChr().getName(), "").trim();
+            if (BotConversation.say(bot, message.getSender(), said.isEmpty() ? message.getContent() : said, null)) {
+                return;
+            }
         }
         log("bot already running");
         bot.getInteractors().setInquirer(message.getSender());

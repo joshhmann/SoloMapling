@@ -255,6 +255,7 @@ public class BotGeneration {
         // available - so what it accumulated is never silently destroyed.
         BotStore.saveThenSettle(fakechar);
         BotRoster.recordSessions(java.util.List.of(fakechar), System.currentTimeMillis(), true);
+        BotConversation.endAllOf(fakechar.getId()); // a bot leaving mid-chat still writes down what it heard
         fakechar.getMap().removePlayer(fakechar);
         channel.removePlayer(fakechar);
         world.getPlayerStorage().removePlayer(fakechar.getId());

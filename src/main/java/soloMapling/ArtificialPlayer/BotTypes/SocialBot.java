@@ -1,14 +1,7 @@
 package soloMapling.ArtificialPlayer.BotTypes;
 
-import soloMapling.server.ExecutorServiceManager;
-import soloMapling.ArtificialPlayer.BotMemory;
-import soloMapling.ArtificialPlayer.BotStore;
-import soloMapling.ArtificialPlayer.BotRoster;
-import soloMapling.ArtificialPlayer.BotPersonality;
-import soloMapling.ArtificialPlayer.BotPersona;
-import soloMapling.ArtificialPlayer.BotChatPrompt;
+import soloMapling.ArtificialPlayer.BotConversation;
 import soloMapling.ArtificialPlayer.BotBrainSystem.BotBrains;
-import soloMapling.ArtificialPlayer.BotBrainSystem.BotBrain;
 import client.Character;
 import soloMapling.ArtificialPlayer.BotChatterSystem.BotChatter;
 import soloMapling.ArtificialPlayer.ConversationManager;
@@ -31,7 +24,6 @@ import soloMapling.server.MethodScheduler;
 import tools.PacketCreator;
 
 import java.awt.Point;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -419,64 +411,18 @@ public class SocialBot extends BotSM {
         chain.start();
     }
 
-    // --- Free-form chat through the brain (bot-persistence ticket 13) ---
+    // --- Free-form chat through the brain (bot-persistence tickets 13, 21) ---
 
-    private static final int CHAT_HISTORY_TURNS = 8;
     private static final long LLM_CONVERSATION_TIMEOUT_MS = 60_000;
-    private final List<BotBrain.Turn> chatHistory = new ArrayList<>();
 
     private void converse(String content, Character player) {
-        List<BotBrain.Turn> history;
-        synchronized (chatHistory) {
-            chatHistory.add(BotBrain.Turn.user(content));
-            while (chatHistory.size() > CHAT_HISTORY_TURNS) {
-                chatHistory.remove(0);
+        // The shared engine holds history, persona, memory and pacing; the script answers when the brain does not.
+        BotConversation.say(this, player, content, () -> {
+            if (isConversationWith(player)) {
+                speakCategory("WhatsUp", player);
             }
-            history = new ArrayList<>(chatHistory);
-        }
-        int slot = getChr().getId() - BotStore.BOT_ID_BASE;
-        BotRoster.Member member = BotRoster.member(slot);
-        BotPersona.Persona persona = member == null ? null : member.personaOrNull();
-        if (persona == null) {
-            persona = BotPersona.generate(slot); // staff and on-demand social bots get a stable persona too
-        }
-        BotPersonality.Traits traits = member == null ? null : member.traits();
-        BotPersona.Persona speaker = persona;
-        long asked = System.currentTimeMillis();
-        // Off the tick thread: the first recall of a pair reads the database (ticket 14).
-        ExecutorServiceManager.runAsync(() -> {
-            List<String> memories = BotMemory.recall(slot, player.getId(), asked);
-            String system = BotChatPrompt.system(getChr(), player, speaker, traits == null ? 0.4 : traits.chattiness(),
-                    BotChatPrompt.activityPhrase("social"), memories);
-            answer(player, BotChatPrompt.conversation(system, history), asked);
         });
-    }
-
-    private void answer(Character player, List<BotBrain.Turn> conversation, long asked) {
-        BotBrains.get().complete(player.getId(), conversation).thenAccept(reply -> {
-            if (!isConversationWith(player)) {
-                return;
-            }
-            if (reply.isEmpty()) {
-                speakCategory("WhatsUp", player); // the brain is down, slow or busy: answer from the script
-                return;
-            }
-            String line = reply.get();
-            synchronized (chatHistory) {
-                chatHistory.add(BotBrain.Turn.assistant(line));
-            }
-            // Type at a human pace: about 55 ms a character, minus the time the brain already took.
-            long typing = Math.max(300, Math.min(5000, 1200 + 55L * line.length() - (System.currentTimeMillis() - asked)));
-            BotTiming.chain()
-                    .stopUnless(() -> isConversationWith(player))
-                    .pause(typing)
-                    .run(() -> botFaceTowardsPoint(getChr(), player.getPosition()))
-                    .run(() -> {
-                        BotSpeak(getChr(), line);
-                        lastRespondantMessageTime = System.currentTimeMillis();
-                    })
-                    .start();
-        });
+        lastRespondantMessageTime = System.currentTimeMillis();
     }
 
     // --- Party recruiting ---
@@ -662,13 +608,8 @@ public class SocialBot extends BotSM {
             expirePlayerChatCommands(respondant);
         }
         getInteractors().resetRespondant();
-        List<BotBrain.Turn> transcript;
-        synchronized (chatHistory) {
-            transcript = new ArrayList<>(chatHistory);
-            chatHistory.clear();
-        }
-        if (respondant != null && !transcript.isEmpty()) {
-            BotMemory.writeConversationNotes(getChr(), respondant, transcript); // ticket 14: remember this chat
+        if (respondant != null) {
+            BotConversation.end(getChr().getId(), respondant.getId()); // ticket 14: the bot writes down what to remember
         }
         socialState = SocialBotState.IDLE_AMBIENT;
         lastRespondantMessageTime = 0;

@@ -9,8 +9,29 @@ the bot's persona and memory. Service bots keep exact scripts where they must (b
 
 **Blocked by:** 13, 19.
 
-**Status:** open
+**Status:** in progress (2026-10-18) — part 1 (one conversation engine for every bot) done; the shared menu is not
 
 - [ ] One interface every bot type implements for its extra options; the shared options work on every type.
 - [ ] Each entry point reaches the same interaction state (a whisper and an all-chat line to the same bot are one conversation).
 - [ ] The old per-type menus are gone or delegate to the layer; no bot type is unreachable.
+
+## Part 1 (as landed): every bot talks
+
+| Anchor | Change |
+| --- | --- |
+| `soloMapling/ArtificialPlayer/BotConversation.java` | one free-form chat engine per (bot, player): last 8 turns, persona + live activity + recalled memories in the prompt, human typing pace, a scripted `fallback` when the brain does not answer, ends on goodbye or 60 s of silence (a sweeper) and hands the transcript to `BotMemory`; `partnerOf` / `isTalking` / `endAllOf` |
+| `soloMapling/ArtificialPlayer/BotTypes/SocialBot.java` | its chat moved onto the engine (menu, party and goodbye stay scripted; the scripted `WhatsUp` line is the fallback) |
+| `soloMapling/ArtificialPlayer/BotOptionMenu.java` | a line that is no menu choice is talk (trainers, followers and every other menu bot), and closing the menu ends the chat |
+| `soloMapling/ArtificialPlayer/BotMessagingSystem/Dispatcher.java` | a bot with no menu of its own (no `displayCommands` override - town wanderers...) answers its name with talk, and the player's next lines on the same map go to that chat |
+| `soloMapling/ArtificialPlayer/BotGeneration.java` | a bot leaving the world ends its chats (and writes its notes) |
+| `src/test/.../BotConversationRoutingTest.java` | menu detection (trainers have one, wanderers do not); with no brain the caller answers from its script |
+
+Still to do (part 2): the shared menu - Party up / Trade / Follow me / Where do you train? on every type, with per-type
+extras, replacing `SocialBot`'s menu, `TrainingBot`'s solo/party menus and the `displayCommands` hints; and service
+bots with their own `displayCommands` (merchants, dice, gacha...) still drop free text.
+
+## Verification (part 1)
+
+- Full suite (2026-10-18): `Tests run: 2153, Failures: 1, Errors: 4` - the five known WZ-missing failures only.
+- The prompt and brain are the ones tried live in tickets 13/14; a trainer or wanderer conversation in game is not
+  yet seen.
