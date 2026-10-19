@@ -51,6 +51,10 @@ public final class BotChatPrompt {
         if (memories != null && !memories.isEmpty()) {
             s.append("What you remember about ").append(player.getName()).append(": ")
                     .append(String.join("; ", memories)).append(". ");
+            if (memories.stream().anyMatch(m -> m.startsWith("heard from "))) {
+                s.append("Things you only heard from someone else, you did not see yourself: if you bring one up, say ")
+                        .append("you heard it (and who from), like gossip. ");
+            }
         }
         s.append(WORLD_FACTS).append(' ');
         s.append("Rules: stay in character as a player; never say you are an AI, a bot or a program, and if someone ")

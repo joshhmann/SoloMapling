@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -80,7 +81,12 @@ class BotMemoryTest {
             return keys;
         });
         when(ps.executeQuery()).thenAnswer(c -> {
-            Iterator<Map<String, Object>> rows = table.stream()
+            Iterator<Map<String, Object>> rows = sql.equals(BotMemory.RECENT_OF_BOT)
+                    ? table.stream()
+                    .filter(r -> r.get("BotId").equals(bound.get(1)) && ((Number) r.get("Hops")).intValue() < (int) bound.get(2))
+                    .sorted((x, y) -> Long.compare(((Number) y.get("CreatedAt")).longValue(), ((Number) x.get("CreatedAt")).longValue()))
+                    .limit((int) bound.get(3)).toList().iterator()
+                    : table.stream()
                     .filter(r -> r.get("BotId").equals(bound.get(1)) && r.get("AboutCharacterId").equals(bound.get(2)))
                     .toList().iterator();
             ResultSet rs = mock(ResultSet.class);
@@ -104,7 +110,7 @@ class BotMemoryTest {
 
         List<String> recalled = BotMemory.recall(7, 1001, 400);
         assertEquals(List.of("saving up for a pink adventurer cape", "said they main a fire/poison mage",
-                "heard from another player: heard they got scammed in the FM"), recalled);
+                "heard from someone: heard they got scammed in the FM"), recalled);
         assertEquals(List.of(), BotMemory.recall(7, 2002, 400), "notes belong to one pair");
     }
 
@@ -129,6 +135,56 @@ class BotMemoryTest {
         BotMemory.writeConversationNotes(bot, player, List.of(BotBrain.Turn.user("im saving for a cape"),
                 BotBrain.Turn.assistant("nice gl")));
         assertTrue(table.isEmpty());
+    }
+
+    @Test
+    void aHeardNoteIsKeptAsHearsayOneHopFurtherOnceAndNeverPastTwoHops() {
+        BotMemory.remember(7, 1001, List.of("saving up for a pink adventurer cape"), BotMemory.Source.DIRECT, 0, 0, 100);
+        BotMemory.Note seen = BotMemory.recentPassable(7, 5).get(0);
+
+        assertTrue(BotMemory.hear(8, seen, 200), "bot 8 hears it from bot 7");
+        assertFalse(BotMemory.hear(8, seen, 300), "and does not keep it twice");
+        BotMemory.Note heard = BotMemory.about(8, 1001).get(0);
+        assertEquals(BotMemory.Source.HEARSAY, heard.source());
+        assertEquals(7, heard.fromBotId());
+        assertEquals(1, heard.hops());
+
+        BotMemory.Note relayed = BotMemory.recentPassable(8, 5).get(0);
+        assertTrue(BotMemory.hear(9, relayed, 400), "second hand is still worth repeating");
+        assertEquals(2, BotMemory.about(9, 1001).get(0).hops());
+        assertTrue(BotMemory.recentPassable(9, 5).isEmpty(), "a two-hop note goes no further");
+        assertFalse(BotMemory.hear(7, relayed, 500), "it does not come back to the bot that saw it");
+        assertTrue(BotMemory.recall(9, 1001, 600).get(0).startsWith("heard from "), BotMemory.recall(9, 1001, 600).toString());
+    }
+
+    @Test
+    void gossipOnlyPassesBetweenBotsOnTheSameMap() {
+        BotMemory.remember(7, 1001, List.of("main a fire/poison mage"), BotMemory.Source.DIRECT, 0, 0, 100);
+        Character teller = Character.getDefault(new BotClient(0, 0));
+        teller.setID(BotStore.BOT_ID_BASE + 7);
+        Character alone = Character.getDefault(new BotClient(0, 0));
+        alone.setID(BotStore.BOT_ID_BASE + 8);
+        Character sameMap = Character.getDefault(new BotClient(0, 0));
+        sameMap.setID(BotStore.BOT_ID_BASE + 9);
+
+        // A random source that always passes the note on (nextDouble 0) and picks index 0 or 1 alternately.
+        java.util.Random always = new java.util.Random() {
+            int i;
+
+            @Override
+            public double nextDouble() {
+                return 0;
+            }
+
+            @Override
+            public int nextInt(int bound) {
+                return bound == 1 ? 0 : (i++ % bound);
+            }
+        };
+        int passed = BotGossip.step(Map.of(100000000, List.of(teller, sameMap), 104000000, List.of(alone)), 200, always);
+        assertTrue(passed >= 1);
+        assertEquals(1, BotMemory.about(9, 1001).size(), "the bot on the same map heard it");
+        assertTrue(BotMemory.about(8, 1001).isEmpty(), "the bot on another map did not");
     }
 
     @Test

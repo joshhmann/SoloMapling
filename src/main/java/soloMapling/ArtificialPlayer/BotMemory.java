@@ -43,6 +43,10 @@ public final class BotMemory {
             + "LastUsedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
     static final String DELETE = "DELETE FROM botmemory WHERE Id = ?";
     static final String TOUCH = "UPDATE botmemory SET LastUsedAt = ? WHERE Id = ?";
+    static final String RECENT_OF_BOT = "SELECT * FROM botmemory WHERE BotId = ? AND Hops < ? ORDER BY CreatedAt DESC LIMIT ?";
+
+    /** A note passes through at most this many mouths: what a bot saw, and what it heard from that bot. */
+    public static final int MAX_HOPS = 2;
 
     private static final Map<Long, List<Note>> cache = new ConcurrentHashMap<>();
     private static volatile BotStore.ConnectionSource connectionSource;
@@ -69,10 +73,59 @@ public final class BotMemory {
                 .thenComparing(Comparator.comparingLong(Note::createdAt).reversed()));
         List<String> recalled = new ArrayList<>();
         for (Note note : notes.subList(0, Math.min(RECALL, notes.size()))) {
-            recalled.add(note.source() == Source.HEARSAY ? "heard from another player: " + note.text() : note.text());
+            recalled.add(note.source() == Source.HEARSAY ? "heard from " + teller(note.fromBotId()) + ": " + note.text()
+                    : note.text());
             touch(note, now);
         }
         return recalled;
+    }
+
+    /** Who passed a note on, as the listener knows them: the teller's name, or "someone". */
+    private static String teller(int fromBotId) {
+        try {
+            BotStore.Persisted row = BotStore.persistedFor(BotStore.BOT_ID_BASE + fromBotId);
+            return row == null ? "someone" : row.name;
+        } catch (RuntimeException e) {
+            return "someone"; // the store is unreadable: the note still counts, its teller is just unnamed
+        }
+    }
+
+    /** The newest notes a bot holds about anyone, that can still be passed on (ticket 15). */
+    public static List<Note> recentPassable(int botId, int limit) {
+        List<Note> notes = new ArrayList<>();
+        try (Connection con = connections().get(); PreparedStatement ps = con.prepareStatement(RECENT_OF_BOT)) {
+            ps.setInt(1, botId);
+            ps.setInt(2, MAX_HOPS);
+            ps.setInt(3, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    notes.add(read(rs));
+                }
+            }
+        } catch (SQLException e) {
+            log.debug("Could not read the notes of bot {}", botId, e);
+        }
+        return notes;
+    }
+
+    /**
+     * Bot {@code listener} hears a note from {@code teller} (ticket 15): it keeps it as hearsay, one hop further,
+     * unless it already holds that note, the note is about to exceed {@link #MAX_HOPS}, or it is the listener's own.
+     *
+     * @return whether the listener kept it
+     */
+    public static boolean hear(int listener, Note heard, long now) {
+        int hops = heard.hops() + 1;
+        if (listener == heard.botId() || hops > MAX_HOPS || listener == heard.fromBotId()) {
+            return false;
+        }
+        for (Note known : about(listener, heard.aboutCharId())) {
+            if (known.text().equalsIgnoreCase(heard.text())) {
+                return false;
+            }
+        }
+        remember(listener, heard.aboutCharId(), List.of(heard.text()), Source.HEARSAY, heard.botId(), hops, now);
+        return true;
     }
 
     /** Stores new notes about a player, condensing the oldest when the pair is full. */
@@ -162,15 +215,19 @@ public final class BotMemory {
             ps.setInt(2, charId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    notes.add(new Note(rs.getLong("Id"), rs.getInt("BotId"), rs.getInt("AboutCharacterId"),
-                            rs.getString("Note"), Source.valueOf(rs.getString("Source")), rs.getInt("FromBotId"),
-                            rs.getInt("Hops"), rs.getLong("CreatedAt"), rs.getLong("LastUsedAt")));
+                    notes.add(read(rs));
                 }
             }
         } catch (SQLException e) {
             log.warn("Could not read what bot {} remembers about {}", botId, charId, e);
         }
         return notes;
+    }
+
+    private static Note read(ResultSet rs) throws SQLException {
+        return new Note(rs.getLong("Id"), rs.getInt("BotId"), rs.getInt("AboutCharacterId"), rs.getString("Note"),
+                Source.valueOf(rs.getString("Source")), rs.getInt("FromBotId"), rs.getInt("Hops"),
+                rs.getLong("CreatedAt"), rs.getLong("LastUsedAt"));
     }
 
     private static Note insert(Note note) {
