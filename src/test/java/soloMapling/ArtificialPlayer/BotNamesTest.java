@@ -82,6 +82,17 @@ class BotNamesTest {
     }
 
     @Test
+    void aPlayerCannotTakeABotsNameAndANameAPlayerWantsIsNeverGivenToABot() {
+        sources(List.of("Wanted", "Spare"), List.of(), List.of(new BotNames.StoredName(20_100, "Celare", 1)));
+        assertFalse(BotNames.reserveForPlayer("celare"), "a bot holds it");
+        assertTrue(BotNames.reserveForPlayer("Wanted"), "free: reserved for the player");
+        assertTrue(BotNames.reserveForPlayer("wanted"), "the same player checking again");
+        for (int i = 0; i < 20; i++) {
+            assertNotEquals("wanted", BotNames.claimNew(30_000 + i).toLowerCase(Locale.ROOT));
+        }
+    }
+
+    @Test
     void variantsAreLegal() {
         sources(List.of("Sparkshooter", "Nayrb"), List.of(), List.of());
         BotNames.poolSize();

@@ -120,6 +120,24 @@ public final class BotNames {
         return renamed;
     }
 
+    /**
+     * A player wants this name (character creation or a name change): true and the name is kept from bots for good,
+     * or false when a bot already holds it. Reserved at the check, not at creation, so no bot can take the name in
+     * between; a name a player checked and never used just stays out of the bots' pool.
+     */
+    public static synchronized boolean reserveForPlayer(String name) {
+        load();
+        if (name == null) {
+            return false;
+        }
+        Integer holder = holderByName.get(key(name));
+        if (holder != null && holder != REAL_PLAYER) {
+            return false;
+        }
+        holderByName.put(key(name), REAL_PLAYER);
+        return true;
+    }
+
     /** Whether any bot or real player holds this name (ignoring case). */
     public static synchronized boolean isTaken(String name) {
         load();

@@ -1002,7 +1002,8 @@ public class Character extends AbstractCharacterObject {
                 return false;
             }
         }
-        return getIdByName(name) < 0 && Pattern.compile("[a-zA-Z0-9]{3,12}").matcher(name).matches();
+        return getIdByName(name) < 0 && Pattern.compile("[a-zA-Z0-9]{3,12}").matcher(name).matches()
+                && soloMapling.ArtificialPlayer.BotNames.reserveForPlayer(name); // never a bot's name (bot-persistence 05)
     }
 
     public boolean canDoor() {

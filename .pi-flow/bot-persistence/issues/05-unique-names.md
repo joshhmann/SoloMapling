@@ -9,7 +9,7 @@ joins) and check them. A name is unique across the roster, staff, and real `char
 
 **Blocked by:** 04.
 
-**Status:** done (2026-10-18) — the owner's 2004-2010 list is not in yet; drop it into `BotNames/`
+**Status:** done (2026-10-18)
 
 - [x] Loader reads the owner's list plus the existing file, filters to the legal pattern, dedupes case-insensitively.
 - [x] New roster bots never reuse a name held by another roster bot, a staff bot or a real character.
@@ -28,7 +28,8 @@ when it ran out, and 3491 bots were drawn from it, so most names were held by tw
 | `soloMapling/FreeMarket/FMShopDescGen.java` | `registerCharacterName` keeps shop owners drawable from online bots |
 | `src/test/.../BotNamesTest.java` | 6 tests: filtering, no repeats / no real-player names, 500 legal unique names from a 2-name pool, oldest keeps a shared name, unheld stored name kept and reserved, variants legal |
 
-Follow-up, not done: a real player can still create a character with a bot's name, because
-`Character.canCreateChar` (`client/Character.java:1005`) only checks the `characters` table. Adding
-`!BotNames.isTaken(name)` there is one line, held back because `Character.java` carries another session's
-uncommitted change.
+Follow-up, done later (2026-10-18): `Character.canCreateChar` now also calls `BotNames.reserveForPlayer` - a name a
+bot holds is refused, and a name that passes is kept from bots for good at the check itself (so no bot claims it
+between the check and the creation; a checked-but-unused name merely leaves the bots' pool). This covers new
+characters and cash-shop name changes alike. `BotNamesTest` +1. The owner's list is in too: `BotNames/` now holds
+12,000 era-style generated names (`scripts/gen_era_names.py`), 13,592 in the pool with the legacy file.
