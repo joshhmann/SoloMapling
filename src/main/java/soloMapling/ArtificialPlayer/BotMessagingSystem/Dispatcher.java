@@ -2,6 +2,7 @@ package soloMapling.ArtificialPlayer.BotMessagingSystem;
 
 import client.Character;
 import soloMapling.ArtificialPlayer.BotConversation;
+import soloMapling.ArtificialPlayer.BotMenus;
 import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotTypes.SocialBot;
 import soloMapling.server.BotShutdown;
@@ -211,8 +212,12 @@ public class Dispatcher implements Runnable {
             return;
         }
         if (!hasChatMenu(bot)) {
-            // bot-persistence ticket 21: a bot with no menu of its own (a town wanderer...) simply talks back.
+            // bot-persistence ticket 21: a bot with no menu of its own (a town wanderer...) simply talks back -
+            // and just its name opens the shared menu window.
             String said = message.getContent().replace(bot.getChr().getName(), "").trim();
+            if (said.isEmpty() && BotMenus.open(bot, message.getSender(), List.of(), (index, who) -> { })) {
+                return;
+            }
             if (BotConversation.say(bot, message.getSender(), said.isEmpty() ? message.getContent() : said, null)) {
                 return;
             }

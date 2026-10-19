@@ -1,5 +1,6 @@
 package soloMapling.ArtificialPlayer.BotTypes;
 
+import soloMapling.ArtificialPlayer.BotMenus;
 import soloMapling.ArtificialPlayer.BotConversation;
 import soloMapling.ArtificialPlayer.BotBrainSystem.BotBrains;
 import client.Character;
@@ -582,7 +583,14 @@ public class SocialBot extends BotSM {
 
     private void showInteractiveOptions(Character player) {
         List<String> options = List.of(INTERACTIVE_OPTIONS);
-        displayPlayerChatCommands(player, options);
+        // A click in the menu window is the same as typing the option's number (bot-persistence ticket 23).
+        if (!BotMenus.open(this, player, options, (index, who) -> {
+            if (isConversationWith(who)) {
+                handleDialogueChoice(String.valueOf(index + 1), who);
+            }
+        })) {
+            displayPlayerChatCommands(player, options);
+        }
     }
 
     // --- Timeout ---

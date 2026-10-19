@@ -48,7 +48,10 @@ public class BotOptionMenu {
     }
 
     public void show(Character player) {
-        displayPlayerChatCommands(player, labels);
+        // bot-persistence ticket 23: a clickable NPC window when it can open, else the numbered chat hint.
+        if (!BotMenus.open(owner, player, labels, onSelect::onSelect)) {
+            displayPlayerChatCommands(player, labels);
+        }
         active = true;
         lastActivityMs = System.currentTimeMillis();
     }

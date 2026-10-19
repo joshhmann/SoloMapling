@@ -86,6 +86,9 @@ public class ServerConfig {
     public Map<String, String> BOT_LLM_EXTRA_BODY = new HashMap<>();
     public Map<String, String> BOT_LLM_EXTRA_HEADERS = new HashMap<>();
     public String BOT_LLM_NOTES_MODEL = "";
+    //SoloMapling: bot menus in the client's NPC window (clickable) instead of numbered chat hints (ticket 23).
+    public boolean BOT_MENU_WINDOW = true;
+
     //SoloMapling: who a chat line is aimed at, when it carries no usable name (bot-persistence ticket 19).
     public String BOT_DECIDE_URL = "";
     public int BOT_DECIDE_TIMEOUT_MS = 600;

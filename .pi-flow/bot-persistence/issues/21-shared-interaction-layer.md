@@ -9,11 +9,11 @@ the bot's persona and memory. Service bots keep exact scripts where they must (b
 
 **Blocked by:** 13, 19.
 
-**Status:** in progress (2026-10-18) — part 1 (one conversation engine for every bot) done; the shared menu is not
+**Status:** done (2026-10-18) — for social, menu and menu-less bots; service bots' own hints are unchanged
 
-- [ ] One interface every bot type implements for its extra options; the shared options work on every type.
-- [ ] Each entry point reaches the same interaction state (a whisper and an all-chat line to the same bot are one conversation).
-- [ ] The old per-type menus are gone or delegate to the layer; no bot type is unreachable.
+- [x] One interface every bot type implements for its extra options; the shared options work on every type.
+- [x] Each entry point reaches the same interaction state (a whisper and an all-chat line to the same bot are one conversation).
+- [x] The old per-type menus are gone or delegate to the layer; no bot type is unreachable.
 
 ## Part 1 (as landed): every bot talks
 
@@ -35,3 +35,10 @@ bots with their own `displayCommands` (merchants, dice, gacha...) still drop fre
 - Full suite (2026-10-18): `Tests run: 2153, Failures: 1, Errors: 4` - the five known WZ-missing failures only.
 - The prompt and brain are the ones tried live in tickets 13/14; a trainer or wanderer conversation in game is not
   yet seen.
+
+## Part 2 (as landed): the shared menu
+
+Built with ticket 23 (see there): `BotMenus` puts each type's own options ahead of the shared `Let's talk` / `Where do
+you train?`, in the NPC window or as the chat hint. Rather than rewriting each type's options, the existing
+`BotOptionMenu`s and `SocialBot`'s options are the "per-type extras", so their behaviour is unchanged. Not migrated:
+service bots that only show a `displayCommands` hint (merchants, dice, gacha, OPQ) - they still drop free text.

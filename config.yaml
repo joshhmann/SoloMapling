@@ -232,6 +232,7 @@ server:
     BOT_LLM_MAX_CONCURRENT: 2           #Match the server's parallel slots (llama.cpp --parallel).
     BOT_LLM_PLAYER_MIN_INTERVAL_MS: 1500
     BOT_LLM_NOTES_MODEL: ""             #Optional: a different (e.g. bigger) model on the same endpoint for memory notes only; blank = BOT_LLM_MODEL.
+    BOT_MENU_WINDOW: true               #SoloMapling: bot menus open as a clickable NPC window; false = numbered chat hints.
     #SoloMapling: a decision model (GLiNER2.5-Decide style /v1/systemone) for requests with no name ("can i get a bless"):
     #it picks the kind of player, and the one bot of that kind nearby asks "u talking to me?". Blank = names and rules only.
     BOT_DECIDE_URL: ""                  #e.g. http://192.168.0.17:8900
