@@ -85,6 +85,7 @@ public class ServerConfig {
     public int BOT_LLM_PLAYER_MIN_INTERVAL_MS = 1500;
     public Map<String, String> BOT_LLM_EXTRA_BODY = new HashMap<>();
     public Map<String, String> BOT_LLM_EXTRA_HEADERS = new HashMap<>();
+    public String BOT_LLM_NOTES_MODEL = "";
 
     //Server Flags
     public boolean USE_CUSTOM_KEYSET;

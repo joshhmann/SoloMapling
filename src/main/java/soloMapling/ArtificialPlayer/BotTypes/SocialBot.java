@@ -1,5 +1,7 @@
 package soloMapling.ArtificialPlayer.BotTypes;
 
+import soloMapling.server.ExecutorServiceManager;
+import soloMapling.ArtificialPlayer.BotMemory;
 import soloMapling.ArtificialPlayer.BotStore;
 import soloMapling.ArtificialPlayer.BotRoster;
 import soloMapling.ArtificialPlayer.BotPersonality;
@@ -439,10 +441,19 @@ public class SocialBot extends BotSM {
             persona = BotPersona.generate(slot); // staff and on-demand social bots get a stable persona too
         }
         BotPersonality.Traits traits = member == null ? null : member.traits();
-        String system = BotChatPrompt.system(getChr(), player, persona, traits == null ? 0.4 : traits.chattiness(),
-                BotChatPrompt.activityPhrase("social"), List.of());
+        BotPersona.Persona speaker = persona;
         long asked = System.currentTimeMillis();
-        BotBrains.get().complete(player.getId(), BotChatPrompt.conversation(system, history)).thenAccept(reply -> {
+        // Off the tick thread: the first recall of a pair reads the database (ticket 14).
+        ExecutorServiceManager.runAsync(() -> {
+            List<String> memories = BotMemory.recall(slot, player.getId(), asked);
+            String system = BotChatPrompt.system(getChr(), player, speaker, traits == null ? 0.4 : traits.chattiness(),
+                    BotChatPrompt.activityPhrase("social"), memories);
+            answer(player, BotChatPrompt.conversation(system, history), asked);
+        });
+    }
+
+    private void answer(Character player, List<BotBrain.Turn> conversation, long asked) {
+        BotBrains.get().complete(player.getId(), conversation).thenAccept(reply -> {
             if (!isConversationWith(player)) {
                 return;
             }
@@ -651,8 +662,13 @@ public class SocialBot extends BotSM {
             expirePlayerChatCommands(respondant);
         }
         getInteractors().resetRespondant();
+        List<BotBrain.Turn> transcript;
         synchronized (chatHistory) {
+            transcript = new ArrayList<>(chatHistory);
             chatHistory.clear();
+        }
+        if (respondant != null && !transcript.isEmpty()) {
+            BotMemory.writeConversationNotes(getChr(), respondant, transcript); // ticket 14: remember this chat
         }
         socialState = SocialBotState.IDLE_AMBIENT;
         lastRespondantMessageTime = 0;

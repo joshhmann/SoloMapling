@@ -109,4 +109,8 @@
         <sqlFile path="db/tables/026-botroster.sql"/>
     </changeSet>
 
+    <changeSet id="27" author="SoloMapling">
+        <sqlFile path="db/tables/027-botmemory.sql"/>
+    </changeSet>
+
 </databaseChangeLog>

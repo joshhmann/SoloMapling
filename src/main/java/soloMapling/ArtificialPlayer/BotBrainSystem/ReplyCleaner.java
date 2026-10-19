@@ -43,6 +43,42 @@ final class ReplyCleaner {
         return Optional.of(line);
     }
 
+    /** A memory note's limit: longer than a chat line, still one thought. */
+    static final int MAX_NOTE_LENGTH = 140;
+    static final int MAX_NOTES = 2;
+    private static final Pattern BULLET = Pattern.compile("^\\s*(?:[-*\u2022]|\\d+[.)])\\s*");
+
+    /**
+     * Turns a note-writing reply into at most {@link #MAX_NOTES} lines of at most {@link #MAX_NOTE_LENGTH}
+     * characters, joined by newlines; empty when the model says there is nothing to keep ("NONE") or leaked only
+     * reasoning.
+     */
+    static Optional<String> notes(String raw) {
+        if (raw == null) {
+            return Optional.empty();
+        }
+        String text = UNCLOSED_THINK.matcher(THINK_BLOCK.matcher(raw).replaceAll("")).replaceAll("");
+        if (THINKING_HEADER.matcher(text).find()) {
+            return Optional.empty();
+        }
+        java.util.List<String> kept = new java.util.ArrayList<>();
+        for (String line : text.split("\\R")) {
+            String note = stripQuotes(BULLET.matcher(line).replaceFirst("").trim()).trim();
+            if (note.isEmpty() || note.toUpperCase().startsWith("NONE")) {
+                continue;
+            }
+            if (note.length() > MAX_NOTE_LENGTH) {
+                int cut = note.lastIndexOf(' ', MAX_NOTE_LENGTH);
+                note = note.substring(0, cut > MAX_NOTE_LENGTH / 2 ? cut : MAX_NOTE_LENGTH).trim();
+            }
+            kept.add(note);
+            if (kept.size() == MAX_NOTES) {
+                break;
+            }
+        }
+        return kept.isEmpty() ? Optional.empty() : Optional.of(String.join("\n", kept));
+    }
+
     private static String firstNonBlankLine(String text) {
         for (String line : text.split("\\R")) {
             if (!line.isBlank()) {

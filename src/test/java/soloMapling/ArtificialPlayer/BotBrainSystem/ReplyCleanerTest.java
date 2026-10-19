@@ -46,6 +46,16 @@ class ReplyCleanerTest {
     }
 
     @Test
+    void notesAreAtMostTwoShortLinesAndNoneMeansNothing() {
+        assertEquals(Optional.of("said they're saving for a pink adventurer cape\nis a lv52 fire/poison mage"),
+                ReplyCleaner.notes("- said they're saving for a pink adventurer cape\n2) is a lv52 fire/poison mage\n- a third"));
+        assertEquals(Optional.empty(), ReplyCleaner.notes("NONE"));
+        assertEquals(Optional.empty(), ReplyCleaner.notes("<think>nothing</think>\nNONE."));
+        String longNote = ReplyCleaner.notes("x ".repeat(120)).orElseThrow();
+        assertTrue(longNote.length() <= ReplyCleaner.MAX_NOTE_LENGTH);
+    }
+
+    @Test
     void jsonRoundTripsTheShapesTheClientUses() {
         Map<String, Object> value = Map.of("s", "line \"quoted\"\nnext\t\u0001", "n", 3L, "d", 1.5, "b", true,
                 "l", List.of(1L, "two"), "m", Map.of());

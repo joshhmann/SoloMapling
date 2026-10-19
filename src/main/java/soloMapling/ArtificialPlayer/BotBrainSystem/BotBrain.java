@@ -44,6 +44,11 @@ public interface BotBrain {
         }
 
         @Override
+        public CompletableFuture<Optional<String>> notes(List<Turn> conversation) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+
+        @Override
         public boolean isLive() {
             return false;
         }
@@ -61,6 +66,13 @@ public interface BotBrain {
      * @param playerId the real player the reply is for, for per-player rate limiting
      */
     CompletableFuture<Optional<String>> complete(int playerId, List<Turn> conversation);
+
+    /**
+     * Short memory notes about a finished conversation (bot-persistence ticket 14): up to two lines, each under
+     * 140 characters, or empty when there is nothing worth remembering - and always empty for the scripted brain, so
+     * a fallback never invents a memory. Not rate limited per player; the future always completes normally.
+     */
+    CompletableFuture<Optional<String>> notes(List<Turn> conversation);
 
     /** Whether this brain can answer at all (false for the scripted fallback). */
     boolean isLive();

@@ -38,8 +38,19 @@ public final class OpenAICompatibleBrain implements BotBrain {
     /** Everything the brain is configured with; built from {@code config.yaml} by {@link BotBrains}. */
     public record Settings(String baseUrl, String apiKey, String model, int maxTokens, double temperature,
                            int timeoutMs, int maxConcurrent, int playerMinIntervalMs,
-                           Map<String, String> extraBody, Map<String, String> extraHeaders) {
+                           Map<String, String> extraBody, Map<String, String> extraHeaders, String notesModel) {
+
+        public Settings(String baseUrl, String apiKey, String model, int maxTokens, double temperature, int timeoutMs,
+                        int maxConcurrent, int playerMinIntervalMs, Map<String, String> extraBody,
+                        Map<String, String> extraHeaders) {
+            this(baseUrl, apiKey, model, maxTokens, temperature, timeoutMs, maxConcurrent, playerMinIntervalMs,
+                    extraBody, extraHeaders, "");
+        }
     }
+
+    /** How long a note-writing call may take: not chat, so nobody is waiting on it. */
+    private static final long NOTES_TIMEOUT_MS = 30_000;
+    private static final int NOTES_MAX_TOKENS = 120;
 
     private final Settings settings;
     private final URI endpoint;
@@ -80,11 +91,24 @@ public final class OpenAICompatibleBrain implements BotBrain {
         lastCallByPlayer.put(playerId, now);
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(settings.timeoutMs());
         CompletableFuture<Optional<String>> result = new CompletableFuture<>();
-        calls.execute(() -> result.complete(call(conversation, deadline)));
+        calls.execute(() -> result.complete(call(conversation, deadline, settings.model(), settings.maxTokens(),
+                ReplyCleaner::clean)));
         return result;
     }
 
-    private Optional<String> call(List<Turn> conversation, long deadline) {
+    @Override
+    public CompletableFuture<Optional<String>> notes(List<Turn> conversation) {
+        // No per-player limit: one call per finished conversation. The notes model, when set, can be a stronger one.
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(NOTES_TIMEOUT_MS);
+        String model = settings.notesModel() == null || settings.notesModel().isBlank() ? settings.model()
+                : settings.notesModel();
+        CompletableFuture<Optional<String>> result = new CompletableFuture<>();
+        calls.execute(() -> result.complete(call(conversation, deadline, model, NOTES_MAX_TOKENS, ReplyCleaner::notes)));
+        return result;
+    }
+
+    private Optional<String> call(List<Turn> conversation, long deadline, String model, int maxTokens,
+                                  java.util.function.Function<String, Optional<String>> cleaner) {
         boolean acquired = false;
         long started = System.nanoTime();
         try {
@@ -99,7 +123,7 @@ public final class OpenAICompatibleBrain implements BotBrain {
             HttpRequest.Builder request = HttpRequest.newBuilder(endpoint)
                     .timeout(Duration.ofMillis(leftMs))
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody(conversation)));
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody(conversation, model, maxTokens)));
             String key = apiKey();
             if (!key.isEmpty()) {
                 request.header("Authorization", "Bearer " + key);
@@ -109,7 +133,7 @@ public final class OpenAICompatibleBrain implements BotBrain {
             if (response.statusCode() / 100 != 2) {
                 return fail("HTTP " + response.statusCode());
             }
-            Optional<String> line = ReplyCleaner.clean(replyText(response.body()));
+            Optional<String> line = cleaner.apply(replyText(response.body()));
             if (line.isEmpty()) {
                 return fail("empty after cleaning");
             }
@@ -129,9 +153,13 @@ public final class OpenAICompatibleBrain implements BotBrain {
     }
 
     String requestBody(List<Turn> conversation) {
+        return requestBody(conversation, settings.model(), settings.maxTokens());
+    }
+
+    String requestBody(List<Turn> conversation, String model, int maxTokens) {
         Map<String, Object> body = new LinkedHashMap<>();
-        if (!settings.model().isEmpty()) {
-            body.put("model", settings.model());
+        if (!model.isEmpty()) {
+            body.put("model", model);
         }
         List<Object> messages = new ArrayList<>();
         for (Turn turn : conversation) {
@@ -141,7 +169,7 @@ public final class OpenAICompatibleBrain implements BotBrain {
             messages.add(message);
         }
         body.put("messages", messages);
-        body.put("max_tokens", settings.maxTokens());
+        body.put("max_tokens", maxTokens);
         body.put("temperature", settings.temperature());
         body.put("stream", false);
         body.putAll(extraBody);

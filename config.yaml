@@ -231,6 +231,7 @@ server:
     BOT_LLM_TIMEOUT_MS: 7000            #Past this the bot answers with a scripted line instead.
     BOT_LLM_MAX_CONCURRENT: 2           #Match the server's parallel slots (llama.cpp --parallel).
     BOT_LLM_PLAYER_MIN_INTERVAL_MS: 1500
+    BOT_LLM_NOTES_MODEL: ""             #Optional: a different (e.g. bigger) model on the same endpoint for memory notes only; blank = BOT_LLM_MODEL.
     BOT_LLM_EXTRA_BODY:                 #JSON fragments merged into every request body.
         chat_template_kwargs: '{"enable_thinking": false}'
     #BOT_LLM_EXTRA_HEADERS:             #Optional headers, e.g. for OpenRouter:

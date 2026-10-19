@@ -43,7 +43,8 @@ public final class BotBrains {
                 server.BOT_LLM_MAX_CONCURRENT,
                 server.BOT_LLM_PLAYER_MIN_INTERVAL_MS,
                 orEmpty(server.BOT_LLM_EXTRA_BODY),
-                orEmpty(server.BOT_LLM_EXTRA_HEADERS)));
+                orEmpty(server.BOT_LLM_EXTRA_HEADERS),
+                orEmpty(server.BOT_LLM_NOTES_MODEL)));
     }
 
     private static String orEmpty(String value) {
