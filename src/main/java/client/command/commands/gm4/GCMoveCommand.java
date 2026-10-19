@@ -51,6 +51,7 @@ public class GCMoveCommand extends Command {
         if (sub.equals("learned")) { // bot-persistence ticket 16: what movement has learned from its failures
             player.dropMessage(soloMapling.ArtificialPlayer.GCMoveSystem.NavEdgeLearning.describe());
             player.dropMessage(soloMapling.ArtificialPlayer.GCMoveSystem.NavObservedEdges.describe());
+            player.dropMessage(soloMapling.ArtificialPlayer.GCMoveSystem.PlayerHeat.describe());
             return;
         }
 

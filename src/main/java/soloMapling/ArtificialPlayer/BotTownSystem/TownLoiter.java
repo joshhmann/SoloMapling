@@ -1,5 +1,6 @@
 package soloMapling.ArtificialPlayer.BotTownSystem;
 
+import soloMapling.ArtificialPlayer.GCMoveSystem.PlayerHeat;
 import client.Character;
 import server.maps.MapleMap;
 import soloMapling.ArtificialPlayer.BotSpotClaims;
@@ -82,6 +83,27 @@ public final class TownLoiter {
             }
             candidateSpots.add(spot);
             candidateLedges.add(new int[]{GCMovement.regionIdAt(map, spot.x, spot.y)});
+        }
+
+        // bot-persistence ticket 18: try the spots players actually stand in first. Without player heat every spot
+        // is 0 and the (stable) sort keeps the random order; ledge claims still stop a crowd forming on one spot.
+        if (candidateSpots.size() > 1) {
+            List<Integer> order = new ArrayList<>();
+            for (int i = 0; i < candidateSpots.size(); i++) {
+                order.add(i);
+            }
+            order.sort((a, b) -> Double.compare(PlayerHeat.warmth(mapId, candidateSpots.get(b)),
+                    PlayerHeat.warmth(mapId, candidateSpots.get(a))));
+            List<Point> spots = new ArrayList<>();
+            List<int[]> ledges = new ArrayList<>();
+            for (int i : order) {
+                spots.add(candidateSpots.get(i));
+                ledges.add(candidateLedges.get(i));
+            }
+            candidateSpots.clear();
+            candidateSpots.addAll(spots);
+            candidateLedges.clear();
+            candidateLedges.addAll(ledges);
         }
 
         // Atomically drop any prior claim and take a new one, so a stop() on another thread can't slip

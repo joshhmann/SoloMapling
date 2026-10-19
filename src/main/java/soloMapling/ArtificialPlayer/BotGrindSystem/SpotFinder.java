@@ -1,5 +1,6 @@
 package soloMapling.ArtificialPlayer.BotGrindSystem;
 
+import soloMapling.ArtificialPlayer.GCMoveSystem.PlayerHeat;
 import client.Character;
 import server.life.Monster;
 import server.maps.MapleMap;
@@ -60,6 +61,7 @@ public final class SpotFinder {
     private static final double LIVE_MOB_W = 6.0;          // per live hostile in radius now (start-hot bias)
     private static final double DISTANCE_W = 0.015;        // per px to the anchor (prefer near → minimal traversal)
     private static final double CROWDING_W = 30.0;         // per claimant (spread the cohort)
+    private static final double PLAYER_HEAT_W = 25.0;      // full warmth = where players grind most; under one claimant, so bots still spread
     // Soft cap, scaled by overflow: each holder past the cap costs a full penalty step. The step dwarfs
     // every other term, so under saturation ranking degenerates to "fewest holders first, score second" —
     // which is exactly the load-balancing we want. A flat penalty here is what used to stack the whole
@@ -573,6 +575,7 @@ public final class SpotFinder {
                     - DISTANCE_W * pos.distance(s.anchor())
                     - CROWDING_W * holders
                     - OVER_CAP_PENALTY * Math.max(0, holders - s.shareCap() + 1)
+                    + PLAYER_HEAT_W * PlayerHeat.warmth(map.getId(), s.anchor()) // ticket 18: where players grind
                     + ThreadLocalRandom.current().nextDouble() * SELECT_JITTER;
             if (score > bestScore) {
                 bestScore = score;

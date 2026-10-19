@@ -1,6 +1,6 @@
 # Handoff — the living bot population (bot-persistence series)
 
-Written 2026-10-18 at commit `e228857e`, for a session started in `/root/SoloMapling`. Read this, then
+Written 2026-10-18 at commit `e228857e`, updated after tickets 17-18, for a session started in `/root/SoloMapling`. Read this, then
 `spec.md` and the ticket you are picking up. Nothing here is a live instruction: it is state. The older
 accounting/durability series (`../scalable-bot-simulation/`, `../HANDOFF.md`) is finished and parked — the owner
 does not want more economy/ledger work unless asked.
@@ -17,13 +17,13 @@ time. Settled decisions are the table in `spec.md`.
 | What | Where |
 | --- | --- |
 | Spec + tickets | `.pi-flow/bot-persistence/spec.md`, `issues/01-23-*.md` (each has `What was built (as landed)` and `Verification`) |
-| Commits | `baef5353..e228857e` on local `main`, **never pushed** (remote `origin = github.com/joshhmann/SoloMapling.git`) |
+| Commits | `baef5353..HEAD` on local `main`, **never pushed** (remote `origin = github.com/joshhmann/SoloMapling.git`) |
 | Uncommitted, not ours | `src/main/java/client/Character.java` + `src/test/java/client/CharacterRingListConcurrencyTest.java` — another (stopped) session's crush-ring CME fix. Leave alone unless the owner says. |
 | Real-WZ sandbox | `/tmp/solomapling-e2e` (ephemeral). Port tweaks: `Channel.java:78 BASE_PORT = 17575`, `Server.java:950 initLoginServer(18484)`. **Copying `Server.java` into it overwrites the port line** — re-apply the sed. Sync = copy every differing `src` file except those two. |
 | MySQL | container `solomapling-verify-db`, root/no password; sandbox schema `cosmic_ticket06boot2` (now holds ~4,270 roster members from the scale run); scratch schema `cosmic_t04_scratch` |
 | Owner's model servers (LAN) | Qwen3.8-9B llama.cpp `http://192.168.0.17:8080/v1` (2 slots, needs `chat_template_kwargs: {enable_thinking:false}`); GLiNER2.5-Decide `http://192.168.0.17:8900/v1/systemone` (serialized, no auth) |
 
-## Status: 21 of 23 done
+## Status: all 23 done
 
 | # | Ticket | State |
 | --- | --- | --- |
@@ -43,8 +43,8 @@ time. Settled decisions are the table in `spec.md`.
 | 14 | memory notes (`botmemory`, migration 027) | done |
 | 15 | gossip (hearsay, 2 hops) | done |
 | 16 | nav learning from failures (`NavEdgeLearning`) | done — learns only on player-observed maps |
-| 17 | nav learning from real players' movement | **open** |
-| 18 | heatmaps: bots go where players go | **open** (after 17) |
+| 17 | nav learning from real players' jumps (`NavObservedEdges`, physics-proven overlay) | done — jumps only |
+| 18 | player heat: town and grind spots lean toward where players stand (`PlayerHeat`) | done — positions only |
 | 19 | addressing: fuzzy names, "u talking to me?", reply rule, GLiNER by job | done |
 | 20 | omit gear with broken sprites (`scripts/bot_item_audit.py`) | done |
 | 21 | one interaction layer (`BotConversation`, `BotMenus`) | done (service bots' own hints unchanged) |
@@ -70,8 +70,9 @@ and the owner's name list in `src/main/java/soloMapling/ArtificialPlayer/BotName
 
 ## Verification recipes
 
-- Repo suite: `mvn -o test` -> `Tests run: 2165, Failures: 1, Errors: 4` = only the five WZ-missing failures
-  (`GCWorldGraphTest`, `CoarseExecutorTest` x2, `GCMoveBakeTest` x2). Anything else is a regression.
+- Repo suite: `mvn -o test` -> `Tests run: 2170, Failures: 1, Errors: 4, Skipped: 1` = only the five WZ-missing
+  failures (`GCWorldGraphTest`, `CoarseExecutorTest` x2, `GCMoveBakeTest` x2) and the WZ-only case of
+  `NavObservedEdgesTest` skipped (it runs in the sandbox). Anything else is a regression.
 - Two-boot proof: sync the sandbox, `mvn -o -q package -DskipTests && mvn -o -q test-compile` there, then
   `bash /tmp/botproof_driver.sh` -> `PROOF-VERIFY PASS`, 15/15 lines in `/tmp/botproof/verify.txt`.
 - Scale proof: in the sandbox, `java -Xmx6g -cp target/Cosmic.jar:target/test-classes
@@ -97,6 +98,7 @@ and the owner's name list in `src/main/java/soloMapling/ArtificialPlayer/BotName
 - **Macro-tick wall time is large** (~20 ms/tick) on the session's starting commit too; it includes blocking waits.
   Judge load by `BotPerfStats` lag and `BotTickService.throttleFactor()`, not macro-tick ms/s.
 - **Nav learning needs an observer**: offscreen bots use the coarse planner and never fail a physical edge.
+  Tickets 17-18 learn only from a real player's movement packets - nothing is learned without one.
 - Cone-mode sparse checkout (`.mvn .pi-flow database docs scripts src` + top-level files): a new top-level dir needs
   `git sparse-checkout add`.
 - `graphify update .` after code changes (AGENTS.md).
