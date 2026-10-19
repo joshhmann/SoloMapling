@@ -108,6 +108,15 @@ public final class BotBuffRequestHandler {
      * bot to grant it. No-op for anything that isn't a request. Cheap and safe to call on
      * every general-chat message.
      */
+    /** Whether {@link #tryHandle} treats this line as a buff request ("hs pls", "bless me") - chat routing steps aside. */
+    public static boolean isBuffRequest(String message) {
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+        String[] tokens = message.trim().toLowerCase().split("\\s+");
+        return hasRequestWord(tokens) && matchConcept(tokens) != null;
+    }
+
     public static void tryHandle(Character player, String message) {
         if (player == null || BotHelpers.isBot(player)) {
             return; // real players only - bot chat must never feed this

@@ -22,6 +22,7 @@ public class SocialCommands {
     }
 
     public static void BotSpeak(Character fakechar, String message) {
+        soloMapling.ArtificialPlayer.BotMessagingSystem.BotChatRouting.noteBotSpoke(fakechar, message); // ticket 19
         if (botChatTypingStyle) {
             BotChatbubbleTyping(fakechar, message, 150);
         } else {

@@ -86,6 +86,10 @@ public class ServerConfig {
     public Map<String, String> BOT_LLM_EXTRA_BODY = new HashMap<>();
     public Map<String, String> BOT_LLM_EXTRA_HEADERS = new HashMap<>();
     public String BOT_LLM_NOTES_MODEL = "";
+    //SoloMapling: who a chat line is aimed at, when it carries no usable name (bot-persistence ticket 19).
+    public String BOT_DECIDE_URL = "";
+    public int BOT_DECIDE_TIMEOUT_MS = 600;
+    public double BOT_DECIDE_ASK = 0.55;
 
     //Server Flags
     public boolean USE_CUSTOM_KEYSET;
