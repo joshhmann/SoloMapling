@@ -46,3 +46,11 @@ login/logout cost. Tune LOD and login spreading until the target holds; only the
   Only 100 of the 200 came back: the 200 that left are in their 20-minute relog cooldown and ~100 other active
   members were offline - as designed.
 - Default `BOT_ROSTER_PEAK_ONLINE` stays 2,400 roster bots (~2,730 with staff), inside the measured envelope.
+
+## Follow-up (2026-10-18): logouts spread across the tick
+
+The director fired a tick's logouts (up to 25) all at once, each writing a row, items and a session record - the
+contention the 200-logout burst exposed. They are now scheduled at random points across the tick, like logins, and a
+logout planned but not yet started counts as already gone in the next tick's planning (`scheduledLogouts`), so it is
+neither planned twice nor double-counted. Not re-measured under the director's own churn (the harness's churn calls
+`logOut` directly).

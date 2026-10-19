@@ -135,6 +135,9 @@ public final class BotPopulationDirector {
      */
     private static final java.util.concurrent.Semaphore LOGIN_SLOTS = new java.util.concurrent.Semaphore(8);
 
+    /** Logouts planned but not yet started (spread across the tick): already gone as far as planning is concerned. */
+    private static final java.util.Set<Integer> scheduledLogouts = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     private static volatile ScheduledFuture<?> ticker;
     private static volatile boolean paused;
     private static volatile Plan lastPlan;
@@ -222,8 +225,17 @@ public final class BotPopulationDirector {
                         + plan.online() + " online), logging in " + plan.logins().size());
             }
             // Ticket 09: a logout is a request - a free bot says bye and goes, a committed one waits (up to a cap).
+            // Spread across the tick like logins: each logout writes the bot's row, items and session, and a whole
+            // tick's worth landing at once contends for the connection pool (ticket 11 measured ~284 ms a logout in
+            // a burst of 200).
+            long logoutSpreadMs = TimeUnit.SECONDS.toMillis(server.BOT_DIRECTOR_TICK_SECONDS);
             for (int botId : plan.logouts()) {
-                BotLogout.request(BotStore.BOT_ID_BASE + botId, now);
+                long delay = ThreadLocalRandom.current().nextLong(Math.max(1, logoutSpreadMs));
+                scheduledLogouts.add(botId);
+                ExecutorServiceManager.getScheduledExecutorService().schedule(() -> {
+                    scheduledLogouts.remove(botId);
+                    BotLogout.request(BotStore.BOT_ID_BASE + botId, System.currentTimeMillis());
+                }, delay, TimeUnit.MILLISECONDS);
             }
             for (Candidate c : roster) {
                 int charId = BotStore.BOT_ID_BASE + c.botId();
@@ -264,8 +276,9 @@ public final class BotPopulationDirector {
             int session = traits != null ? traits.sessionMinutes() : m.sessionMinutes();
             BotRoster.Activity last = m.lastActivity();
             boolean ended = last != null && last.intState(BotRoster.ENDED_STATE, 0) == 1;
-            roster.add(new Candidate(m.botId(), live != null, m.status() == BotRoster.Status.ACTIVE, m.lastLoginAt(),
-                    m.lastLogoutAt(), windowStart, windowLen, session, live != null && mayLogOut(live), ended));
+            boolean online = live != null && !scheduledLogouts.contains(m.botId());
+            roster.add(new Candidate(m.botId(), online, m.status() == BotRoster.Status.ACTIVE, m.lastLoginAt(),
+                    m.lastLogoutAt(), windowStart, windowLen, session, online && mayLogOut(live), ended));
         }
         return roster;
     }
