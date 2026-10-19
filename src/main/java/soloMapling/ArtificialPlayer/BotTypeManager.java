@@ -296,7 +296,9 @@ public class BotTypeManager {
         for (Integer id : botIds) {
             Character fakechar = getValidBot(id);
             if (fakechar == null) continue;
-            botType.createAndSetBot(fakechar);
+            // bot-persistence ticket 07: a roster member resuming a session keeps the activity it logged out in.
+            BotType resumed = BotRoster.resumedType(id);
+            (resumed != null ? resumed : botType).createAndSetBot(fakechar);
             manuallyStartBot(fakechar);
         }
     }

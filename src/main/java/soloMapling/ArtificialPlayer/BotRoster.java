@@ -62,6 +62,17 @@ public final class BotRoster {
                     homeMapId, activity, activityState, at, lastLogoutAt, enrolledAt);
         }
 
+        Member withTraits(BotPersonality.Traits traits) {
+            return new Member(botId, status, traits.toJson(), persona, traits.playWindowStart(),
+                    traits.playWindowLen(), traits.sessionMinutes(), homeMapId, activity, activityState, lastLoginAt,
+                    lastLogoutAt, enrolledAt);
+        }
+
+        /** This member's personality, or null before one was generated (ticket 07). */
+        public BotPersonality.Traits traits() {
+            return BotPersonality.parse(personality, playWindowStart, playWindowLen, sessionMinutes);
+        }
+
         /** This member with what it is doing now, and the logout time when it is leaving the world. */
         Member withSession(Activity now, long logoutAt) {
             return new Member(botId, status, personality, persona, playWindowStart, playWindowLen, sessionMinutes,
@@ -178,7 +189,18 @@ public final class BotRoster {
         if (member == null) {
             return;
         }
-        members.put(member.botId(), member.withLogin(now));
+        Member loggedIn = member.withLogin(now);
+        if (loggedIn.traits() == null) {
+            // Ticket 07: a member gets its personality once, the first time it logs in, tilted toward what it has
+            // been doing so far; it is written with the member's next session record.
+            Activity last = member.lastActivity();
+            BotPersonality.Activity habit = last == null ? null : BotPersonality.Activity.fromRecorded(last.name());
+            if (habit == null) {
+                habit = BotStore.waveOf(member.botId()) == 9 ? BotPersonality.Activity.TOWN : BotPersonality.Activity.GRIND;
+            }
+            loggedIn = loggedIn.withTraits(BotPersonality.generate(member.botId(), habit));
+        }
+        members.put(member.botId(), loggedIn);
         loginPlaces.put(charId, new LoginPlace(placedMapId, placedAt.x, placedAt.y, now));
         Activity last = member.lastActivity();
         if (last == null) {
@@ -202,6 +224,21 @@ public final class BotRoster {
 
     /** The activity-state key of the map a grinder trains on. */
     public static final String TRAIN_STATE = "train";
+
+    /** The activity armed for this bot's resume, without consuming it. */
+    public static Activity peekResume(int charId) {
+        return pendingResume.get(charId);
+    }
+
+    /**
+     * The bot type a roster member logs in as (ticket 07): a resumed session keeps the activity it logged out in;
+     * otherwise null, and the caller's choice stands.
+     */
+    public static BotTypeManager.BotType resumedType(int charId) {
+        Activity armed = peekResume(charId);
+        BotPersonality.Activity activity = armed == null ? null : BotPersonality.Activity.fromRecorded(armed.name());
+        return activity == null ? null : activity.type;
+    }
 
     /** The activity this bot logged out in, once: the second call returns null. */
     public static Activity takeResume(int charId) {
