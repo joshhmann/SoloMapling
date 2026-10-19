@@ -29,8 +29,15 @@ import net.packet.InPacket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import server.ChatLogger;
+import soloMapling.ArtificialPlayer.BotConversation;
+import soloMapling.ArtificialPlayer.BotHelpers;
+import soloMapling.ArtificialPlayer.BotMessagingSystem.BotAddressee;
+import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
+import soloMapling.ArtificialPlayer.BotSM;
 import tools.PacketCreator;
 import tools.PacketCreator.WhisperFlag;
+
+import java.util.List;
 
 /**
  * @author Chronos
@@ -52,6 +59,7 @@ public final class WhisperHandler extends AbstractPacketHandler {
 
         if (target == null) {
             c.sendPacket(PacketCreator.getWhisperResult(name, false));
+            suggestBotName(c.getPlayer(), name);
             return;
         }
 
@@ -87,6 +95,41 @@ public final class WhisperHandler extends AbstractPacketHandler {
         }
     }
 
+    private static final List<String> BUSY_WHISPERS = List.of("sry busy rn", "cant talk, grinding", "brb", "?", "hm?");
+
+    /**
+     * A whisper to a bot goes into its conversation with the player and is answered by whisper. With no brain the bot
+     * is a busy player: now and then a short "busy" whisper, otherwise nothing.
+     */
+    private static void whisperBot(String message, Character user, Character bot) {
+        BotSM brain = CharacterStorage.getBotById(bot.getId());
+        int channel = user.getClient().getChannel() - 1;
+        java.util.function.Consumer<String> whisperBack = line ->
+                user.sendPacket(PacketCreator.getWhisperReceive(bot.getName(), channel, false, line));
+        if (brain == null || !BotConversation.say(brain, user, message, null, whisperBack)) {
+            if (java.util.concurrent.ThreadLocalRandom.current().nextInt(3) == 0) {
+                whisperBack.accept(BUSY_WHISPERS.get(java.util.concurrent.ThreadLocalRandom.current().nextInt(BUSY_WHISPERS.size())));
+            }
+        }
+    }
+
+    /** "No one named resme" - but a bot on the player's map is Ressurectme: say so. */
+    private static void suggestBotName(Character user, String typed) {
+        if (user == null || user.getMap() == null) {
+            return;
+        }
+        List<BotAddressee.Candidate> nearby = new java.util.ArrayList<>();
+        for (Character chr : user.getMap().getCharacters()) {
+            if (BotHelpers.isBot(chr)) {
+                nearby.add(new BotAddressee.Candidate(chr.getId(), chr.getName()));
+            }
+        }
+        BotAddressee.Result result = BotAddressee.resolve(typed, nearby);
+        if (result.best() != null && (result.sure() || result.worthAsking())) {
+            user.dropMessage(5, "Did you mean " + result.best().name() + "?");
+        }
+    }
+
     private void handleWhisper(String message, Character user, Character target) {
         if (user.getAutobanManager().getLastSpam(7) + 200 > currentServerTime()) {
             return;
@@ -102,7 +145,11 @@ public final class WhisperHandler extends AbstractPacketHandler {
 
         ChatLogger.log(user.getClient(), "Whisper To " + target.getName(), message);
 
-        target.sendPacket(PacketCreator.getWhisperReceive(user.getName(), user.getClient().getChannel() - 1, user.isGM(), message));
+        if (BotHelpers.isBot(target)) {
+            whisperBot(message, user, target); // bot-persistence ticket 22: a bot reads its whispers
+        } else {
+            target.sendPacket(PacketCreator.getWhisperReceive(user.getName(), user.getClient().getChannel() - 1, user.isGM(), message));
+        }
 
         boolean hidden = target.isHidden() && target.gmLevel() > user.gmLevel();
         user.sendPacket(PacketCreator.getWhisperResult(target.getName(), !hidden));

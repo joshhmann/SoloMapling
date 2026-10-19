@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.botFaceTowardsPoint;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotSpeak;
@@ -37,6 +38,8 @@ public final class BotConversation {
         final Character player;
         final List<BotBrain.Turn> history = new ArrayList<>();
         volatile long lastAt;
+        /** How the bot answers: in map chat, or back as a whisper when that is how the player spoke (ticket 22). */
+        volatile Consumer<String> deliver;
 
         Session(BotSM bot, Character player, long now) {
             this.bot = bot;
@@ -57,6 +60,14 @@ public final class BotConversation {
      * live, so the caller can answer from its script straight away.
      */
     public static boolean say(BotSM bot, Character player, String line, Runnable fallback) {
+        return say(bot, player, line, fallback, null);
+    }
+
+    /**
+     * As {@link #say(BotSM, Character, String, Runnable)}, answered through {@code deliver} (a whisper back, say)
+     * instead of map chat; null means map chat. Both ways are one conversation with one history and memory.
+     */
+    public static boolean say(BotSM bot, Character player, String line, Runnable fallback, Consumer<String> deliver) {
         if (bot == null || bot.getChr() == null || player == null || !BotBrains.get().isLive()) {
             return false;
         }
@@ -65,6 +76,7 @@ public final class BotConversation {
         Session session = sessions.computeIfAbsent(new Key(bot.getChr().getId(), player.getId()),
                 k -> new Session(bot, player, now));
         session.lastAt = now;
+        session.deliver = deliver;
         List<BotBrain.Turn> history;
         synchronized (session.history) {
             session.history.add(BotBrain.Turn.user(line));
@@ -152,12 +164,21 @@ public final class BotConversation {
             }
             // Type at a human pace: about 55 ms a character, minus the time the brain already took.
             long typing = Math.max(300, Math.min(5000, 1200 + 55L * line.length() - (System.currentTimeMillis() - asked)));
+            Consumer<String> deliver = session.deliver;
             BotTiming.chain()
                     .stopUnless(() -> sessions.containsKey(new Key(bot.getId(), player.getId())))
                     .pause(typing)
-                    .run(() -> botFaceTowardsPoint(bot, player.getPosition()))
                     .run(() -> {
-                        BotSpeak(bot, line);
+                        if (deliver == null && bot.getMapId() == player.getMapId()) {
+                            botFaceTowardsPoint(bot, player.getPosition());
+                        }
+                    })
+                    .run(() -> {
+                        if (deliver != null) {
+                            deliver.accept(line);
+                        } else {
+                            BotSpeak(bot, line);
+                        }
                         session.lastAt = System.currentTimeMillis();
                     })
                     .start();
