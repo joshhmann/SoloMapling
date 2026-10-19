@@ -20,6 +20,7 @@
 */
 package server.maps;
 
+import client.BotClient;
 import client.Character;
 import client.Client;
 import client.inventory.Item;
@@ -223,6 +224,9 @@ public class MapItem extends AbstractMapObject {
 
     @Override
     public void sendSpawnData(final Client client) {
+        if (client instanceof BotClient) {
+            return;
+        }
         Character chr = client.getPlayer();
 
         if (chr.needQuestItem(questid, getItemId())) {

@@ -21,6 +21,7 @@
  */
 package server.maps;
 
+import client.BotClient;
 import client.BuffStat;
 import client.Character;
 import client.Client;
@@ -440,9 +441,7 @@ public class MapleMap {
             chrRLock.unlock();
         }
 
-        for (Character chr : inRangeCharacters) {
-            packetbakery.sendPackets(chr.getClient());
-        }
+        sendRangedSpawnPackets(inRangeCharacters, packetbakery::sendPackets);
     }
 
     private void spawnRangedMapObject(MapObject mapobject, DelayedPacketCreation packetbakery, SpawnCondition condition) {
@@ -464,8 +463,17 @@ public class MapleMap {
             chrRLock.unlock();
         }
 
-        for (Character chr : inRangeCharacters) {
-            packetbakery.sendPackets(chr.getClient());
+        sendRangedSpawnPackets(inRangeCharacters, packetbakery::sendPackets);
+    }
+
+    static void sendRangedSpawnPackets(Iterable<Character> recipients,
+                                       java.util.function.Consumer<Client> sender) {
+        for (Character chr : recipients) {
+            Client recipient = chr.getClient();
+            // Packet builders can inspect getPlayer() before BotClient discards the packet.
+            if (!(recipient instanceof BotClient)) {
+                sender.accept(recipient);
+            }
         }
     }
 
@@ -3033,6 +3041,9 @@ public class MapleMap {
     }
 
     private void sendObjectPlacement(Client c) {
+        if (c instanceof BotClient) {
+            return;
+        }
         Character chr = c.getPlayer();
         Collection<MapObject> objects;
 
