@@ -285,4 +285,10 @@ public class GameZoneHostBot extends BotSM {
         BotSpeak(getChr(), "Hmm, I don't have that. Try again!");
         BotEmote(getChr(), 6);
     }
+
+    /** Reads players' typed lines itself (menu, bets, script): free text stays with it (bot-persistence ticket 21). */
+    @Override
+    public boolean consumesFreeText() {
+        return true;
+    }
 }

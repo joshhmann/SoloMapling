@@ -9,7 +9,7 @@ the bot's persona and memory. Service bots keep exact scripts where they must (b
 
 **Blocked by:** 13, 19.
 
-**Status:** done (2026-10-18) — for social, menu and menu-less bots; service bots' own hints are unchanged
+**Status:** done (2026-10-18) — every bot type answers free text
 
 - [x] One interface every bot type implements for its extra options; the shared options work on every type.
 - [x] Each entry point reaches the same interaction state (a whisper and an all-chat line to the same bot are one conversation).
@@ -42,3 +42,13 @@ Built with ticket 23 (see there): `BotMenus` puts each type's own options ahead 
 you train?`, in the NPC window or as the chat hint. Rather than rewriting each type's options, the existing
 `BotOptionMenu`s and `SocialBot`'s options are the "per-type extras", so their behaviour is unchanged. Not migrated:
 service bots that only show a `displayCommands` hint (merchants, dice, gacha, OPQ) - they still drop free text.
+
+## Part 3 (as landed): service bots talk too
+
+`Dispatcher.hasChatMenu` (a reflection check for a `displayCommands` override) was the wrong question: merchants, gacha,
+the drop-game host and OPQ bots override it only to show a hint and never read typed lines, so what a player said to
+them was dropped. `BotSM.consumesFreeText()` (default false) now marks the bots that do read them - social, trainer,
+follower, dice, blackjack, tutorial, game-zone host. Every other bot answers free text through `BotConversation`;
+named alone it shows its own hint (`showsOwnHint`) or, with none, the shared menu window, and `BotConversation.open`
+makes the player's next lines reach it. `BotChatPrompt.activityPhrase` knows the service roles (running a shop in
+the FM, hosting a drop game, waiting for Orbis PQ...). `BotConversationRoutingTest` updated.

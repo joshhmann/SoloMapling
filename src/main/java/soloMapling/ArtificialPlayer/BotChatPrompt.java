@@ -80,7 +80,12 @@ public final class BotChatPrompt {
         return switch (recorded) {
             case "grind" -> "grinding";
             case "social" -> "hanging out in town";
-            case "townwanderer" -> "wandering around town";
+            case "townwanderer", "henesys" -> "wandering around town";
+            case "sellingmerchant", "nxmerchant", "scrolling" -> "running a shop in the Free Market";
+            case "buyingmerchant" -> "buying items in the Free Market";
+            case "gacha" -> "trying the gachapon";
+            case "dropgame" -> "hosting a drop game";
+            case "opq" -> "waiting to do Orbis PQ";
             default -> null;
         };
     }

@@ -4,6 +4,7 @@ import client.BotClient;
 import client.Character;
 import org.junit.jupiter.api.Test;
 import soloMapling.ArtificialPlayer.BotConversation;
+import soloMapling.ArtificialPlayer.BotTypes.SellingMerchantBot;
 import soloMapling.ArtificialPlayer.BotTypes.TownWandererBot;
 import soloMapling.ArtificialPlayer.BotTypes.TrainingBot;
 
@@ -15,9 +16,13 @@ import static org.mockito.Mockito.mock;
 class BotConversationRoutingTest {
 
     @Test
-    void botsWithAMenuKeepItAndBotsWithoutOneTalk() {
-        assertTrue(Dispatcher.hasChatMenu(mock(TrainingBot.class)), "trainers keep their numbered menu");
-        assertFalse(Dispatcher.hasChatMenu(mock(TownWandererBot.class)), "wanderers have no menu: they just talk");
+    void botsThatReadTypedLinesKeepThemAndTheRestTalk() {
+        assertTrue(new TrainingBot(Character.getDefault(new BotClient(0, 0))).consumesFreeText(), "trainers keep their menu");
+        assertFalse(new TownWandererBot(Character.getDefault(new BotClient(0, 0))).consumesFreeText(), "wanderers talk");
+        assertFalse(new SellingMerchantBot(Character.getDefault(new BotClient(0, 0))).consumesFreeText(),
+                "a merchant shows its hint but talks back instead of dropping what it is told");
+        assertTrue(Dispatcher.showsOwnHint(mock(SellingMerchantBot.class)));
+        assertFalse(Dispatcher.showsOwnHint(mock(TownWandererBot.class)), "a wanderer gets the shared menu window");
     }
 
     @Test

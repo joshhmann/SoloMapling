@@ -330,4 +330,10 @@ public class DiceBot extends BotSM {
         startTime = System.currentTimeMillis();
         setBet(BetType.NONE);
     }
+
+    /** Reads players' typed lines itself (menu, bets, script): free text stays with it (bot-persistence ticket 21). */
+    @Override
+    public boolean consumesFreeText() {
+        return true;
+    }
 }

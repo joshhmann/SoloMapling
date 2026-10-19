@@ -616,8 +616,10 @@ public class TutorialBot extends BotSM {
             getDialogueHandler().executeBotFlavorDialogue("Flavor", TutorialBot.this);
         }
     }
-}
 
-/*
-[] todo make hats dropped unlootable. then after selected, make the one remaining lootable
- */
+    /** Reads players' typed lines itself (menu, bets, script): free text stays with it (bot-persistence ticket 21). */
+    @Override
+    public boolean consumesFreeText() {
+        return true;
+    }
+}

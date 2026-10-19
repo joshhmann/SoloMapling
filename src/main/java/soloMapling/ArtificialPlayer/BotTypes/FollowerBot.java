@@ -300,4 +300,10 @@ public class FollowerBot extends BotSM {
         super.stopScheduledTask();
         log("[FollowerBot] stopped: " + (chr != null ? chr.getName() : "?"));
     }
+
+    /** Reads players' typed lines itself (menu, bets, script): free text stays with it (bot-persistence ticket 21). */
+    @Override
+    public boolean consumesFreeText() {
+        return true;
+    }
 }

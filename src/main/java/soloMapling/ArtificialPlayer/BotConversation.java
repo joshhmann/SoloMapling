@@ -90,6 +90,16 @@ public final class BotConversation {
         return true;
     }
 
+    /** Opens a chat without a line yet (the player named the bot): their next lines go to it. */
+    public static void open(BotSM bot, Character player) {
+        if (bot == null || bot.getChr() == null || player == null || !BotBrains.get().isLive()) {
+            return;
+        }
+        startSweeper();
+        long now = System.currentTimeMillis();
+        sessions.computeIfAbsent(new Key(bot.getChr().getId(), player.getId()), k -> new Session(bot, player, now)).lastAt = now;
+    }
+
     /** Whether this player is mid-chat with this bot. */
     public static boolean isTalking(int botCharId, int playerId) {
         Session session = sessions.get(new Key(botCharId, playerId));

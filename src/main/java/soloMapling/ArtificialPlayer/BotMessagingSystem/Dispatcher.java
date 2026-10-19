@@ -98,7 +98,7 @@ public class Dispatcher implements Runnable {
         // Mid-chat with a bot that has no menu: the next line is for that bot (ticket 21).
         int partner = BotConversation.partnerOf(sender.getId());
         BotSM partnerBot = partner < 0 ? null : getBotById(partner);
-        if (partnerBot != null && !hasChatMenu(partnerBot) && partnerBot.getChr() != null
+        if (partnerBot != null && !partnerBot.consumesFreeText() && partnerBot.getChr() != null
                 && partnerBot.getChr().getMapId() == sender.getMapId()) {
             BotConversation.say(partnerBot, sender, message.getContent(), null);
             return true;
@@ -141,7 +141,7 @@ public class Dispatcher implements Runnable {
         return true;
     }
 
-    /** Whether this bot type shows a menu of its own (it overrides {@code BotSM.displayCommands}). */
+    /** Whether this bot type shows a hint of its own when named (it overrides {@code BotSM.displayCommands}). */
     private static final ClassValue<Boolean> HAS_MENU = new ClassValue<>() {
         @Override
         protected Boolean computeValue(Class<?> type) {
@@ -153,7 +153,7 @@ public class Dispatcher implements Runnable {
         }
     };
 
-    static boolean hasChatMenu(BotSM bot) {
+    static boolean showsOwnHint(BotSM bot) {
         return HAS_MENU.get(bot.getClass());
     }
 
@@ -211,12 +211,21 @@ public class Dispatcher implements Runnable {
             handleSocialBotSession(socialBot, message);
             return;
         }
-        if (!hasChatMenu(bot)) {
-            // bot-persistence ticket 21: a bot with no menu of its own (a town wanderer...) simply talks back -
-            // and just its name opens the shared menu window.
+        if (!bot.consumesFreeText()) {
+            // bot-persistence ticket 21: a bot that does not read typed lines itself (a merchant, a gacha host, a
+            // town wanderer) talks back through the brain. Its name alone shows its own hint (a merchant's) or
+            // the shared menu window (a wanderer's), and opens the chat so the player's next lines reach it.
             String said = message.getContent().replace(bot.getChr().getName(), "").trim();
-            if (said.isEmpty() && BotMenus.open(bot, message.getSender(), List.of(), (index, who) -> { })) {
-                return;
+            if (said.isEmpty()) {
+                if (showsOwnHint(bot)) {
+                    bot.getDialogueHandler().listOptions(message.getSender(), bot);
+                    BotConversation.open(bot, message.getSender());
+                    return;
+                }
+                if (BotMenus.open(bot, message.getSender(), List.of(), (index, who) -> { })) {
+                    BotConversation.open(bot, message.getSender());
+                    return;
+                }
             }
             if (BotConversation.say(bot, message.getSender(), said.isEmpty() ? message.getContent() : said, null)) {
                 return;

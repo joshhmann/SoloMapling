@@ -459,6 +459,15 @@ public abstract class BotSM implements EventSubscriber {
     }
 
     /**
+     * Whether this bot reads a player's free-typed lines itself - a numbered menu, bets, "hit"/"stand", a
+     * conversation script (bot-persistence ticket 21). The rest (merchants, gacha, town wanderers...) answer free text
+     * through the shared conversation engine instead of dropping it.
+     */
+    public boolean consumesFreeText() {
+        return false;
+    }
+
+    /**
      * What this bot is doing, for the roster to resume it after a logout or restart (bot-persistence ticket 06).
      * The default records the bot type and the map it stands on as home; a type with more to resume
      * ({@code TrainingBot}'s train map) overrides it.

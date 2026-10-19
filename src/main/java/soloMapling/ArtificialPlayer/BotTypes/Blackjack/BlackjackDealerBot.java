@@ -862,4 +862,10 @@ public class BlackjackDealerBot extends BotSM {
     // TODO: BotSwapItemAtLocation — not yet available in new architecture.
     // Face-down card reveal is skipped for now; dealer only receives 1 card
     // during initial deal and draws from deck during dealer turn.
+
+    /** Reads players' typed lines itself (menu, bets, script): free text stays with it (bot-persistence ticket 21). */
+    @Override
+    public boolean consumesFreeText() {
+        return true;
+    }
 }
