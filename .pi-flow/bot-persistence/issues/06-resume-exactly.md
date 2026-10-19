@@ -9,7 +9,7 @@ the bot starts in `HomeMapId`.
 
 **Blocked by:** 04.
 
-**Status:** done (2026-10-18) — the grind-in-place resume is unit-built but not yet observed on a live bot
+**Status:** done (2026-10-18)
 
 - [x] A trainer saved on a field map logs back in on that map, grinding, not in town. (placement proven live; the GRIND re-entry not yet observed, see Verification)
 - [x] A bot saved on an instance map falls back to its home town. (as forced-return maps, like a player; unit-tested)
@@ -50,3 +50,6 @@ Waves 8/9 still choose the bot type at boot; ticket 07 makes the activity a per-
 - Later run (ticket 08's proof): the tracked bot logged out on `105090400`, a map with a forced return, and logged in
   at the return map `105090200`'s spawn - the forced-return path live. The grind-in-place check still did not apply
   (that bot was not on its train map); the harness now waits for the FSM's init before judging it.
+- Observed live (regression proof on the tree through ticket 23, 15/15 PASS): `Celare` logged out training on
+  `105090300` at `(-269, 350)`, logged back in at exactly that point, and resumed `grind` on `105090300` with home
+  `105070001` - the grind-in-place resume works on a real boot.
