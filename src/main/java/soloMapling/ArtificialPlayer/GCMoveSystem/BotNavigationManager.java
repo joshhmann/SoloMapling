@@ -1062,7 +1062,7 @@ final class BotNavigationManager {
                     }
                 }
 
-                for (BotNavigationGraph.Edge edge : graph.getOutgoing(current.state.regionId)) {
+                for (BotNavigationGraph.Edge edge : NavObservedEdges.outgoing(graph, current.state.regionId)) {
                     edgeChecks++;
                     if (!isEdgeUsable(graph, map, edge)) {
                         continue;

@@ -187,6 +187,10 @@ public abstract class AbstractMovementPacketHandler extends AbstractPacketHandle
 
                     byte newstate = p.readByte();
                     target.setStance(newstate);
+                    // bot-persistence ticket 17: bots learn jumps from how real players move (fh 0 = airborne).
+                    if (target instanceof client.Character player && !soloMapling.ArtificialPlayer.BotHelpers.isBot(player)) {
+                        soloMapling.ArtificialPlayer.GCMoveSystem.NavObservedEdges.onPlayerMove(player, xpos, ypos + yOffset, fh);
+                    }
 
                     short duration = p.readShort(); //duration
                     break;
