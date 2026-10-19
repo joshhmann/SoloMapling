@@ -207,6 +207,14 @@ public final class BotPopulationProof {
         int id = Integer.parseInt(state.get("id"));
         List<String> results = new ArrayList<>();
 
+        // bot-persistence ticket 08: the director decides who plays, so a roster member is not guaranteed to be
+        // among this boot's logins - the tracked bot logs back in through the director's own login path, like a
+        // player coming back.
+        int trackedSlot = id - BotStore.BOT_ID_BASE;
+        if (BotRoster.isMember(trackedSlot) && !CharacterStorage.botLoggedIn(id)) {
+            say("tracked bot is offline after the director's boot fill; logging it in: "
+                    + BotPopulationDirector.logIn(trackedSlot));
+        }
         Character live = null;
         long deadline = System.currentTimeMillis() + 60_000;
         while (live == null && System.currentTimeMillis() < deadline) {
@@ -312,8 +320,20 @@ public final class BotPopulationProof {
                         && member.lastLogoutAt() > 0,
                 "activity=" + (last == null ? "none" : last.name() + " home=" + last.homeMapId() + " " + last.state())
                         + " lastLogoutAt=" + member.lastLogoutAt());
+        // A bot's FSM first ticks after the spawn choreography plus a random stagger; its snapshot only reflects
+        // the resume once that init has run (home is 0 until then), so wait for it rather than judge too early.
         BotSM brain = soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage.getBotById(id);
         BotRoster.Activity now = brain == null ? null : brain.activitySnapshot();
+        long initDeadline = System.currentTimeMillis() + 30_000;
+        while (brain != null && now != null && now.homeMapId() <= 0 && System.currentTimeMillis() < initDeadline) {
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            now = brain.activitySnapshot();
+        }
         if (last != null && "grind".equals(last.name()) && last.intState(BotRoster.TRAIN_STATE, -1) == row.mapId
                 && expectedMap == row.mapId) {
             record(results, "a grinder that logged out on its train map kept grinding there",
@@ -658,8 +678,15 @@ public final class BotPopulationProof {
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────────
 
     private static Character chooseTrackedBot() {
+        // A roster member when one qualifies (bot-persistence tickets 06/08 check its resume), else any planned bot.
+        Character member = chooseTrackedBot(true);
+        return member != null ? member : chooseTrackedBot(false);
+    }
+
+    private static Character chooseTrackedBot(boolean rosterOnly) {
         return liveBots().stream()
                 .filter(bot -> bot != null && bot.getMap() != null && BotStore.isPlanned(bot.getId() - BotStore.BOT_ID_BASE))
+                .filter(bot -> !rosterOnly || BotRoster.isMember(bot.getId() - BotStore.BOT_ID_BASE))
                 .filter(bot -> bot.getLevel() >= 10 && bot.getTrade() == null && bot.getMeso() >= 5_000)
                 .filter(bot -> BotHoldings.canHold(bot, new Item(LOOT_ITEM_ID, (short) 0, (short) 1)))
                 .max(Comparator.comparingInt(Character::getMeso))

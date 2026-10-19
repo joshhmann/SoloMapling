@@ -1,5 +1,12 @@
 package soloMapling.ArtificialPlayer.BotTypes;
 
+import soloMapling.ArtificialPlayer.BotStore;
+import soloMapling.ArtificialPlayer.BotRoster;
+import soloMapling.ArtificialPlayer.BotPersonality;
+import soloMapling.ArtificialPlayer.BotPersona;
+import soloMapling.ArtificialPlayer.BotChatPrompt;
+import soloMapling.ArtificialPlayer.BotBrainSystem.BotBrains;
+import soloMapling.ArtificialPlayer.BotBrainSystem.BotBrain;
 import client.Character;
 import soloMapling.ArtificialPlayer.BotChatterSystem.BotChatter;
 import soloMapling.ArtificialPlayer.ConversationManager;
@@ -22,6 +29,7 @@ import soloMapling.server.MethodScheduler;
 import tools.PacketCreator;
 
 import java.awt.Point;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -376,10 +384,19 @@ public class SocialBot extends BotSM {
             return;
         }
 
+        if (category == null && BotBrains.get().isLive()) {
+            // bot-persistence ticket 13: free-form talk (no menu number, no keyword) goes to the brain; the menu,
+            // party recruiting and goodbye above stay scripted.
+            converse(content, player);
+            return;
+        }
         if (category == null) {
             category = "WhatsUp";
         }
+        speakCategory(category, player);
+    }
 
+    private void speakCategory(String category, Character player) {
         if (random.nextDouble() < RARE_LINE_CHANCE) {
             category = "Rare";
         }
@@ -398,6 +415,57 @@ public class SocialBot extends BotSM {
         }
         chain.run(() -> showInteractiveOptions(player));
         chain.start();
+    }
+
+    // --- Free-form chat through the brain (bot-persistence ticket 13) ---
+
+    private static final int CHAT_HISTORY_TURNS = 8;
+    private static final long LLM_CONVERSATION_TIMEOUT_MS = 60_000;
+    private final List<BotBrain.Turn> chatHistory = new ArrayList<>();
+
+    private void converse(String content, Character player) {
+        List<BotBrain.Turn> history;
+        synchronized (chatHistory) {
+            chatHistory.add(BotBrain.Turn.user(content));
+            while (chatHistory.size() > CHAT_HISTORY_TURNS) {
+                chatHistory.remove(0);
+            }
+            history = new ArrayList<>(chatHistory);
+        }
+        int slot = getChr().getId() - BotStore.BOT_ID_BASE;
+        BotRoster.Member member = BotRoster.member(slot);
+        BotPersona.Persona persona = member == null ? null : member.personaOrNull();
+        if (persona == null) {
+            persona = BotPersona.generate(slot); // staff and on-demand social bots get a stable persona too
+        }
+        BotPersonality.Traits traits = member == null ? null : member.traits();
+        String system = BotChatPrompt.system(getChr(), player, persona, traits == null ? 0.4 : traits.chattiness(),
+                BotChatPrompt.activityPhrase("social"), List.of());
+        long asked = System.currentTimeMillis();
+        BotBrains.get().complete(player.getId(), BotChatPrompt.conversation(system, history)).thenAccept(reply -> {
+            if (!isConversationWith(player)) {
+                return;
+            }
+            if (reply.isEmpty()) {
+                speakCategory("WhatsUp", player); // the brain is down, slow or busy: answer from the script
+                return;
+            }
+            String line = reply.get();
+            synchronized (chatHistory) {
+                chatHistory.add(BotBrain.Turn.assistant(line));
+            }
+            // Type at a human pace: about 55 ms a character, minus the time the brain already took.
+            long typing = Math.max(300, Math.min(5000, 1200 + 55L * line.length() - (System.currentTimeMillis() - asked)));
+            BotTiming.chain()
+                    .stopUnless(() -> isConversationWith(player))
+                    .pause(typing)
+                    .run(() -> botFaceTowardsPoint(getChr(), player.getPosition()))
+                    .run(() -> {
+                        BotSpeak(getChr(), line);
+                        lastRespondantMessageTime = System.currentTimeMillis();
+                    })
+                    .start();
+        });
     }
 
     // --- Party recruiting ---
@@ -567,7 +635,8 @@ public class SocialBot extends BotSM {
         if (lastRespondantMessageTime == 0) return;
 
         long elapsed = System.currentTimeMillis() - lastRespondantMessageTime;
-        if (elapsed > CONVERSATION_TIMEOUT_MS) {
+        long timeout = BotBrains.get().isLive() ? LLM_CONVERSATION_TIMEOUT_MS : CONVERSATION_TIMEOUT_MS;
+        if (elapsed > timeout) {
             String line = getRandomLine("Timeout", getInteractors().getRespondant());
             if (line != null) {
                 BotSpeak(getChr(), line);
@@ -582,6 +651,9 @@ public class SocialBot extends BotSM {
             expirePlayerChatCommands(respondant);
         }
         getInteractors().resetRespondant();
+        synchronized (chatHistory) {
+            chatHistory.clear();
+        }
         socialState = SocialBotState.IDLE_AMBIENT;
         lastRespondantMessageTime = 0;
     }

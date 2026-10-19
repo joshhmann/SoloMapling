@@ -47,3 +47,6 @@ Waves 8/9 still choose the bot type at boot; ticket 07 makes the activity a per-
   the harness would show it.
 - Sandbox note: copying `net/server/Server.java` into the sandbox overwrote its login-port tweak; re-applied
   (`initLoginServer(18484)`) before the run. Copy that file by hand or re-apply the sed after.
+- Later run (ticket 08's proof): the tracked bot logged out on `105090400`, a map with a forced return, and logged in
+  at the return map `105090200`'s spawn - the forced-return path live. The grind-in-place check still did not apply
+  (that bot was not on its train map); the harness now waits for the FSM's init before judging it.

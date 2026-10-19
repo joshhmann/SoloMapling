@@ -172,7 +172,7 @@ Bots get better at moving around maps over time.
 P5/P6 and N1/N2 can run in parallel with P2-P4.
 
 Tickets (`issues/`): P0 = 01-03 · P1 = 04-05 · P2 = 06 · P3 = 07-10 · P4 = 11 · P5 = 12-13 · P6 = 14-15 ·
-N1 = 16 · N2 = 17-18 · chat routing = 19 · client-safe item ids = 20. Independent starting points: 01, 02, 03, 12.
+N1 = 16 · N2 = 17-18 · chat routing = 19 · client-safe item ids = 20 · shared interaction layer = 21 · whispers = 22 · menu window = 23. Independent starting points: 01, 02, 03, 12.
 
 ## Testing
 

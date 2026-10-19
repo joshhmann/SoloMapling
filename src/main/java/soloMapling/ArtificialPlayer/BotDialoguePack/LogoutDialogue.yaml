@@ -1,0 +1,18 @@
+# What a roster bot says as it logs off (bot-persistence ticket 09). Said only when a real player can see it.
+# Alone: nobody in particular is listening. Party: it is leaving a party with a real player in it.
+Alone:
+  - "gtg dinner"
+  - "ok im off cya"
+  - "gn all"
+  - "brb food"
+  - "gotta sleep, cya tmr"
+  - "mom says off lol"
+  - "logging, bye"
+  - "cya guys"
+Party:
+  - "gtg, ty for the party"
+  - "sry gotta go, ty party"
+  - "im off, gl guys"
+  - "gtg dinner, ty for pt"
+  - "cya, good pt"
+  - "leaving pt, ty all"

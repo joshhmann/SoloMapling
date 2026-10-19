@@ -68,6 +68,16 @@ public final class BotRoster {
                     lastLogoutAt, enrolledAt);
         }
 
+        Member withPersona(BotPersona.Persona generated) {
+            return new Member(botId, status, personality, generated.toJson(), playWindowStart, playWindowLen,
+                    sessionMinutes, homeMapId, activity, activityState, lastLoginAt, lastLogoutAt, enrolledAt);
+        }
+
+        /** How this member talks, or null before a persona was generated (ticket 13). */
+        public BotPersona.Persona personaOrNull() {
+            return BotPersona.parse(persona);
+        }
+
         /** This member's personality, or null before one was generated (ticket 07). */
         public BotPersonality.Traits traits() {
             return BotPersonality.parse(personality, playWindowStart, playWindowLen, sessionMinutes);
@@ -200,6 +210,9 @@ public final class BotRoster {
             }
             loggedIn = loggedIn.withTraits(BotPersonality.generate(member.botId(), habit));
         }
+        if (loggedIn.personaOrNull() == null) {
+            loggedIn = loggedIn.withPersona(BotPersona.generate(member.botId()));
+        }
         members.put(member.botId(), loggedIn);
         loginPlaces.put(charId, new LoginPlace(placedMapId, placedAt.x, placedAt.y, now));
         Activity last = member.lastActivity();
@@ -207,6 +220,10 @@ public final class BotRoster {
             // Enrolled by the migration, never written by a session yet: home is the town its wave spawns it in,
             // and it was training where it stands.
             last = new Activity("", waveMapId, Map.of(TRAIN_STATE, placedMapId));
+        } else if (last.intState(ENDED_STATE, 0) == 1) {
+            // Its last session ended on purpose (ticket 08): this login is a fresh session - home comes back,
+            // the activity is drawn anew by whoever logs it in.
+            last = new Activity("", last.homeMapId(), Map.of());
         }
         pendingResume.put(charId, last);
     }
@@ -224,6 +241,15 @@ public final class BotRoster {
 
     /** The activity-state key of the map a grinder trains on. */
     public static final String TRAIN_STATE = "train";
+    /** The activity-state key set when a session ended on purpose rather than with the server. */
+    public static final String ENDED_STATE = "ended";
+
+    private static final Set<Integer> endedSessions = ConcurrentHashMap.newKeySet();
+
+    /** The next session record for this bot marks its session as ended (the director logged it out). */
+    public static void markSessionEnded(int charId) {
+        endedSessions.add(charId);
+    }
 
     /** The activity armed for this bot's resume, without consuming it. */
     public static Activity peekResume(int charId) {
@@ -262,7 +288,13 @@ public final class BotRoster {
             if (member == null) {
                 continue;
             }
-            updated.add(member.withSession(activityOf(bot), loggingOut ? now : 0));
+            Activity activity = activityOf(bot);
+            if (endedSessions.remove(bot.getId())) {
+                Map<String, Object> state = new java.util.LinkedHashMap<>(activity.state());
+                state.put(ENDED_STATE, 1);
+                activity = new Activity(activity.name(), activity.homeMapId(), state);
+            }
+            updated.add(member.withSession(activity, loggingOut ? now : 0));
         }
         if (updated.isEmpty()) {
             return 0;
@@ -377,6 +409,7 @@ public final class BotRoster {
             members.clear();
             pendingResume.clear();
             loginPlaces.clear();
+            endedSessions.clear();
             loaded = false;
             highestRosterSlot = BotStore.FIRST_ROSTER_SLOT - 1;
         }

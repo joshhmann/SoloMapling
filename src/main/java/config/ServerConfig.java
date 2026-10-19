@@ -55,12 +55,30 @@ public class ServerConfig {
     //SoloMapling: spawn the bot world automatically on server startup (cold boot).
     public boolean SPAWN_BOTS_ON_STARTUP;
 
+    //SoloMapling: the population director (bot-persistence ticket 08) - roster bots log in and out on a daily curve.
+    public boolean BOT_DIRECTOR_ENABLED = true;
+    public int BOT_ROSTER_PEAK_ONLINE = 2400;
+    public String BOT_ROSTER_CURVE = "0:0.45,3:0.25,6:0.15,9:0.25,12:0.45,15:0.6,18:0.85,20:1.0,22:0.8";
+    public double BOT_ROSTER_WEEKEND_LIFT = 1.1;
+    public String BOT_ROSTER_TIMEZONE = "";
+    public int BOT_DIRECTOR_TICK_SECONDS = 30;
+    public int BOT_DIRECTOR_MAX_LOGINS_PER_TICK = 25;
+    public int BOT_DIRECTOR_MAX_LOGOUTS_PER_TICK = 25;
+    public int BOT_ROSTER_SEED_MIN = 100;
+    //SoloMapling: roster lifecycle (bot-persistence ticket 10) - new players, quitting, coming back. Rates are per day.
+    public double BOT_ROSTER_SIZE_MULTIPLE = 3.0;
+    public int BOT_ROSTER_NEW_PER_DAY = 40;
+    public double BOT_ROSTER_VETERAN_FILL_BELOW = 0.5;
+    public int BOT_ROSTER_VETERANS_PER_DAY = 300;
+    public double BOT_ROSTER_QUIT_PER_DAY = 0.002;
+    public double BOT_ROSTER_RETURN_PER_DAY = 0.01;
+
     //SoloMapling: player-directed bot chat through any OpenAI-compatible endpoint (bot-persistence ticket 12).
     //Blank URL = scripted dialogue only. Each EXTRA_BODY value is a JSON fragment merged into the request body.
     public String BOT_LLM_BASE_URL = "";
     public String BOT_LLM_API_KEY = "";
     public String BOT_LLM_MODEL = "";
-    public int BOT_LLM_MAX_TOKENS = 64;
+    public int BOT_LLM_MAX_TOKENS = 40;
     public double BOT_LLM_TEMPERATURE = 1.0;
     public int BOT_LLM_TIMEOUT_MS = 7000;
     public int BOT_LLM_MAX_CONCURRENT = 2;

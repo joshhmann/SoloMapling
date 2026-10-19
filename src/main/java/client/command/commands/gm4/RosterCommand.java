@@ -3,6 +3,8 @@ package client.command.commands.gm4;
 import client.Character;
 import client.Client;
 import client.command.Command;
+import soloMapling.ArtificialPlayer.BotPopulationDirector;
+import soloMapling.ArtificialPlayer.BotRoster;
 import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotStore;
 import soloMapling.ArtificialPlayer.BotStoreReport;
@@ -19,10 +21,14 @@ import static soloMapling.server.SoloMaplingUtilities.isInteger;
  * !roster status              - store and online counts
  * !roster status <name|id>    - one bot, live next to its stored row
  * !roster saveall             - write every online bot now (the hourly autosave, on demand)
+ * !roster director            - the population director's numbers (ticket 08)
+ * !roster curve               - today's online target, hour by hour
+ * !roster login|logout <name|id> - log one roster bot in or out now
+ * !roster pause|resume        - hold the population still, or let the director run
  */
 public class RosterCommand extends Command {
     {
-        setDescription("Bot roster: !roster status [name|id], !roster saveall");
+        setDescription("Bot roster: !roster status [name|id], saveall, director, curve, login|logout <bot>, pause|resume");
     }
 
     @Override
@@ -43,7 +49,34 @@ public class RosterCommand extends Command {
                     int saved = BotStore.saveAll(bots);
                     player.yellowMessage("Saved " + saved + " of " + bots.size() + " online bots.");
                 }
-                default -> player.yellowMessage("Usage: !roster status [name|id] | !roster saveall");
+                case "director" -> player.yellowMessage(BotPopulationDirector.describe());
+                case "curve" -> {
+                    StringBuilder line = new StringBuilder("Target by hour:");
+                    BotPopulationDirector.todaysTargets().forEach((hour, target) -> line.append(' ').append(hour)
+                            .append('h').append('=').append(target));
+                    player.yellowMessage(line.toString());
+                }
+                case "pause", "resume" -> {
+                    BotPopulationDirector.setPaused(sub.equals("pause"));
+                    player.yellowMessage(BotPopulationDirector.describe());
+                }
+                case "login", "logout" -> {
+                    if (params.length < 2) {
+                        player.yellowMessage("Usage: !roster " + sub + " <name|id>");
+                        return;
+                    }
+                    for (int charId : rosterIds(params[1])) {
+                        int slot = charId - BotStore.BOT_ID_BASE;
+                        boolean done = sub.equals("login") ? BotPopulationDirector.logIn(slot)
+                                : BotPopulationDirector.logOut(slot);
+                        player.yellowMessage(sub + " " + charId + ": " + (done ? (sub.equals("logout")
+                                ? "leaving (now, or once its commitment ends)" : "done")
+                                : sub.equals("login") ? "not logged in (already online, not a member, or no map)"
+                                : "not online"));
+                    }
+                }
+                default -> player.yellowMessage("Usage: !roster status [name|id] | saveall | director | curve"
+                        + " | login|logout <name|id> | pause|resume");
             }
         });
     }
@@ -75,6 +108,24 @@ public class RosterCommand extends Command {
             BotSM live = CharacterStorage.getBotById(id);
             BotStoreReport.describe(id, live != null ? live.getChr() : null, now).forEach(player::yellowMessage);
         }
+    }
+
+    /** Roster members by character id or by name (names are unique for new claims, but old rows may share one). */
+    private static List<Integer> rosterIds(String target) {
+        List<Integer> ids = new ArrayList<>();
+        if (isInteger(target)) {
+            int id = Integer.parseInt(target);
+            if (BotRoster.isMember(id - BotStore.BOT_ID_BASE)) {
+                ids.add(id);
+            }
+            return ids;
+        }
+        for (int id : BotStoreReport.storedIdsNamed(target)) {
+            if (BotRoster.isMember(id - BotStore.BOT_ID_BASE)) {
+                ids.add(id);
+            }
+        }
+        return ids;
     }
 
     private static List<Character> onlineBots() {

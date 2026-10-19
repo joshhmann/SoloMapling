@@ -147,6 +147,10 @@ public class BotGeneration {
             // so a restart between creation and its first save cannot re-mint it as somebody else.
             try {
                 BotStore.recordFirstCreation(bot);
+                // A bot the population waves mint while seeding joins the roster (bot-persistence ticket 08).
+                if (BotRoster.POPULATION_WAVES.contains(BotStore.waveOf(slot))) {
+                    BotRoster.enroll(slot, System.currentTimeMillis());
+                }
             } catch (SQLException e) {
                 e.printStackTrace();
             }

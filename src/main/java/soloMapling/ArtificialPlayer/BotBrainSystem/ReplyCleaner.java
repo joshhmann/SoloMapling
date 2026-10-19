@@ -64,7 +64,14 @@ final class ReplyCleaner {
         return line;
     }
 
+    /** Cuts an over-long line at the last sentence break that keeps most of it, else at the last word. */
     private static String clampAtWord(String line) {
+        for (int i = MAX_CHAT_LENGTH - 1; i > MAX_CHAT_LENGTH / 2; i--) {
+            char c = line.charAt(i);
+            if (c == '.' || c == '!' || c == '?' || c == ',') {
+                return line.substring(0, c == ',' ? i : i + 1).trim();
+            }
+        }
         int cut = line.lastIndexOf(' ', MAX_CHAT_LENGTH);
         return (cut > MAX_CHAT_LENGTH / 2 ? line.substring(0, cut) : line.substring(0, MAX_CHAT_LENGTH)).trim();
     }

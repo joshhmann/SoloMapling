@@ -3,6 +3,7 @@ package soloMapling.Environment;
 import client.Character;
 import client.Job;
 import server.maps.MapleMap;
+import soloMapling.ArtificialPlayer.BotPopulationDirector;
 import soloMapling.ArtificialPlayer.BotGeneration;
 import soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands;
 import soloMapling.ArtificialPlayer.BotStore;
@@ -170,6 +171,59 @@ public class EnvironmentManager {
                 slotBase -> spawnMerchBotsBatch(slotBase, "m5", 2, 2, 1)
         ));
 
+        // bot-persistence ticket 08: once the roster holds players, the director logs them in on the daily curve
+        // instead of waves 8 and 9 spawning everyone; until then those waves seed (and enrol) the roster.
+        boolean directorOn = BotPopulationDirector.enabled();
+        boolean rosterReady = directorOn && BotPopulationDirector.rosterReady();
+        System.out.println("[EnvironmentManager] population: director " + (directorOn ? "on" : "off")
+                + (directorOn ? (rosterReady ? ", roster ready" : ", roster too small - seeding with waves 8/9") : ""));
+        if (rosterReady) {
+            BotPopulationDirector.start();
+        } else {
+            seedPopulationWaves();
+        }
+
+        BotDecorationQueue.start();
+        BotEquipChecker.start();
+
+        double totalSeconds = (System.currentTimeMillis() - startupStart) / 1000.0;
+        System.out.println(String.format(
+                "[EnvironmentManager] === All bots initialized: %d bots in %.1fs ===",
+                BotGeneration.getBotsCreatedCount(), totalSeconds));
+    }
+
+    /**
+     * The training cohorts of boot wave 8, in task order (task 0 is the portal-graph prewarm, so cohort i is task
+     * i + 1 - the order fixes every stored bot's slot and must not change). Also the level bands the roster's
+     * veterans are drawn from (bot-persistence ticket 10).
+     */
+    public record TrainingCohort(int townMapId, int count, int loLevel, int hiLevel) {
+    }
+
+    public static final List<TrainingCohort> TRAINING_COHORTS = List.of(
+            new TrainingCohort(MapId.LITH_HARBOUR, 20, 1, 15),
+            new TrainingCohort(MapId.HENESYS, 225, 10, 95),
+            new TrainingCohort(MapId.KERNING_CITY, 225, 10, 65),
+            new TrainingCohort(MapId.PERION, 225, 10, 65),
+            new TrainingCohort(MapId.ELLINIA, 225, 10, 65),
+            new TrainingCohort(MapId.SLEEPYWOOD, 225, 25, 95),   // town: Sleepy Dungeon + Ant Tunnel I-IV + Forest of Golem
+            new TrainingCohort(MapId.ANT_TUNNEL_PARK, 180, 40, 95),   // deep hub (~9 hops in): Cave of Evil Eye / Grave of Mushmom
+            new TrainingCohort(MapId.ORBIS, 220, 30, 86),
+            new TrainingCohort(MapId.LUDIBRIUM, 200, 25, 95),
+            new TrainingCohort(MapId.PATH_OF_TIME_HUB, 160, 70, 95),   // deep hub: Forgotten Path of Time / Clocktower (Platoon Chronos, Papa Pixie → Papulatus)
+            new TrainingCohort(MapId.EL_NATH, 200, 50, 80),   // town: shops at El Nath Market (potion / equip); grinds Ice Valley + cloud maps
+            new TrainingCohort(MapId.SHARP_CLIFF_I, 200, 60, 90),   // deep hub (Jeff one-way from Ice Valley II): Sharp Cliff II / Wolf Territory / Forest of Dead Trees / Dead Mine
+            new TrainingCohort(MapId.HENESYS, 25, 1, 9),   // beginner sword grinders
+            new TrainingCohort(MapId.KERNING_CITY, 20, 1, 9),   // beginner sword grinders
+            new TrainingCohort(MapId.PERION, 20, 1, 9),   // beginner sword grinders
+            new TrainingCohort(MapId.ELLINIA, 20, 1, 9)   // beginner sword grinders
+    );
+
+    /**
+     * The roster's seed: waves 8 (training cohorts) and 9 (town presence) as they ran before the director. They
+     * spawn the population at fixed boot-plan slots; every bot they mint is enrolled in the roster.
+     */
+    private static void seedPopulationWaves() {
         // Roaming training grinders. Each cohort = N job-coherent bots at a town's spawn portal; they
         // discover nearby level-appropriate field maps via WZ and fan out on their own. DIAL THESE
         // COUNTS DOWN (e.g. 2 each) for a first-boot pilot, then restore. Sub-level-10 cohorts spawn
@@ -185,27 +239,13 @@ public class EnvironmentManager {
         // Papulatus), past what the Ludi-town cohort reaches. A non-town spawn is handled gracefully:
         // homeMapId becomes that junction, GO_TOWN returns there, and the unlisted map just skips shop
         // trips (TrainingBot.doInit / TOWN_SHOPS).
-        runWave(8, "Training bots", List.of(
-                slotBase -> GCMovement.mapsWithinHops(MapId.HENESYS, 1),          // prewarm the portal graph once
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.LITH_HARBOUR,  20,  1, 15),
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.HENESYS,       225, 10, 95),
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.KERNING_CITY,  225, 10, 65),
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.PERION,        225, 10, 65),
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.ELLINIA,       225, 10, 65),
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.SLEEPYWOOD,     225, 25, 95),  // town: Sleepy Dungeon + Ant Tunnel I-IV + Forest of Golem
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.ANT_TUNNEL_PARK, 180, 40, 95), // deep hub (~9 hops in): Cave of Evil Eye / Grave of Mushmom
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.ORBIS,         220, 30, 86),
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.LUDIBRIUM,     200, 25, 95),
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.PATH_OF_TIME_HUB, 160, 70, 95), // deep hub: Forgotten Path of Time / Clocktower (Platoon Chronos, Papa Pixie → Papulatus)
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.EL_NATH,       200, 50, 80),  // town: shops at El Nath Market (potion / equip); grinds Ice Valley + cloud maps
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.SHARP_CLIFF_I, 200, 60, 90), // deep hub (Jeff one-way from Ice Valley II): Sharp Cliff II / Wolf Territory / Forest of Dead Trees / Dead Mine
-
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.HENESYS,       25,  1,  9),  // beginner sword grinders
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.KERNING_CITY,  20,  1,  9),  // beginner sword grinders
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.PERION,        20,  1,  9),  // beginner sword grinders
-                slotBase -> spawnTrainingBotsAt(slotBase, MapId.ELLINIA,       20,  1,  9)  // beginner sword grinders
-
-        ));
+        List<PlanTask> trainingTasks = new ArrayList<>();
+        trainingTasks.add(slotBase -> GCMovement.mapsWithinHops(MapId.HENESYS, 1)); // prewarm the portal graph once
+        for (TrainingCohort cohort : TRAINING_COHORTS) {
+            trainingTasks.add(slotBase -> spawnTrainingBotsAt(slotBase, cohort.townMapId(), cohort.count(),
+                    cohort.loLevel(), cohort.hiLevel()));
+        }
+        runWave(8, "Training bots", trainingTasks);
 
         // Ambient town population: SocialBots scattered at anchor-weighted spots across the seven towns
         // that until now had only grinders passing through, plus roaming wanderers. Runs after wave 8 so the
@@ -216,14 +256,6 @@ public class EnvironmentManager {
             townTasks.add(slotBase -> spawnTown(slotBase, town));
         }
         runWave(9, "Town presence", townTasks);
-
-        BotDecorationQueue.start();
-        BotEquipChecker.start();
-
-        double totalSeconds = (System.currentTimeMillis() - startupStart) / 1000.0;
-        System.out.println(String.format(
-                "[EnvironmentManager] === All bots initialized: %d bots in %.1fs ===",
-                BotGeneration.getBotsCreatedCount(), totalSeconds));
     }
 
     // Spawn one town's training-bot cohort: n job-coherent roaming grinders at the town's spawn
