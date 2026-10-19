@@ -322,6 +322,7 @@ public class Character extends AbstractCharacterObject {
     private final Lock petLock = new ReentrantLock(true);
     private final Lock prtLock = new ReentrantLock();
     private final Lock cpnLock = new ReentrantLock();
+    private final Lock ringLock = new ReentrantLock();
     private final Map<Integer, Set<Integer>> excluded = new LinkedHashMap<>();
     private final Set<Integer> excludedItems = new LinkedHashSet<>();
     private final Set<Integer> disabledPartySearchInvites = new LinkedHashSet<>();
@@ -630,7 +631,12 @@ public class Character extends AbstractCharacterObject {
     }
 
     public void addCrushRing(Ring r) {
-        crushRings.add(r);
+        ringLock.lock();
+        try {
+            crushRings.add(r);
+        } finally {
+            ringLock.unlock();
+        }
     }
 
     public Ring getRingById(int id) {
@@ -709,7 +715,12 @@ public class Character extends AbstractCharacterObject {
     }
 
     public void addFriendshipRing(Ring r) {
-        friendshipRings.add(r);
+        ringLock.lock();
+        try {
+            friendshipRings.add(r);
+        } finally {
+            ringLock.unlock();
+        }
     }
 
     public void addMarriageRing(Ring r) {
@@ -4754,8 +4765,14 @@ public class Character extends AbstractCharacterObject {
     }
 
     public List<Ring> getCrushRings() {
-        Collections.sort(crushRings);
-        return crushRings;
+        ringLock.lock();
+        try {
+            List<Ring> rings = new ArrayList<>(crushRings);
+            Collections.sort(rings);
+            return rings;
+        } finally {
+            ringLock.unlock();
+        }
     }
 
     public int getCurrentCI() {
@@ -5101,8 +5118,14 @@ public class Character extends AbstractCharacterObject {
     }
 
     public List<Ring> getFriendshipRings() {
-        Collections.sort(friendshipRings);
-        return friendshipRings;
+        ringLock.lock();
+        try {
+            List<Ring> rings = new ArrayList<>(friendshipRings);
+            Collections.sort(rings);
+            return rings;
+        } finally {
+            ringLock.unlock();
+        }
     }
 
     public int getGender() {

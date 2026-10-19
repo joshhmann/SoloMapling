@@ -6775,8 +6775,11 @@ public class PacketCreator {
     }
 
     private static void addRingInfo(OutPacket p, Character chr) {
-        p.writeShort(chr.getCrushRings().size());
-        for (Ring ring : chr.getCrushRings()) {
+        // One snapshot per list: the count written must be the count of rings written after it, even if a ring is
+        // registered between the two reads.
+        List<Ring> crushRings = chr.getCrushRings();
+        p.writeShort(crushRings.size());
+        for (Ring ring : crushRings) {
             p.writeInt(ring.getPartnerChrId());
             p.writeFixedString(getRightPaddedStr(ring.getPartnerName(), '\0', 13));
             p.writeInt(ring.getRingId());
@@ -6784,8 +6787,9 @@ public class PacketCreator {
             p.writeInt(ring.getPartnerRingId());
             p.writeInt(0);
         }
-        p.writeShort(chr.getFriendshipRings().size());
-        for (Ring ring : chr.getFriendshipRings()) {
+        List<Ring> friendshipRings = chr.getFriendshipRings();
+        p.writeShort(friendshipRings.size());
+        for (Ring ring : friendshipRings) {
             p.writeInt(ring.getPartnerChrId());
             p.writeFixedString(getRightPaddedStr(ring.getPartnerName(), '\0', 13));
             p.writeInt(ring.getRingId());
