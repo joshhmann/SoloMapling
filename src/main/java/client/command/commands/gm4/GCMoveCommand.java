@@ -48,6 +48,10 @@ public class GCMoveCommand extends Command {
             handleLod(player, params);
             return;
         }
+        if (sub.equals("learned")) { // bot-persistence ticket 16: what movement has learned from its failures
+            player.dropMessage(soloMapling.ArtificialPlayer.GCMoveSystem.NavEdgeLearning.describe());
+            return;
+        }
 
         // Every other subcommand targets a specific bot by id: !gcmove <sub> <botId> [args]
         if (params.length < 2) {

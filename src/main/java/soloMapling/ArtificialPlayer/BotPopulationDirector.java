@@ -168,6 +168,11 @@ public final class BotPopulationDirector {
                 server.BOT_ROSTER_CURVE, period);
     }
 
+    /** The proof harness (ticket 11): fill to the current target now, without the per-tick login cap. */
+    static void fillNow() {
+        tick(Integer.MAX_VALUE);
+    }
+
     public static synchronized void stop() {
         if (ticker != null) {
             ticker.cancel(false);
@@ -295,8 +300,11 @@ public final class BotPopulationDirector {
             Thread.currentThread().interrupt();
             return;
         }
+        long started = System.nanoTime();
         try {
-            logIn(botId);
+            if (logIn(botId)) {
+                soloMapling.ArtificialPlayer.GCMoveSystem.BotPerformanceMonitor.recordRosterLogin(System.nanoTime() - started);
+            }
         } catch (Exception e) {
             log.warn("Login of roster bot {} failed", botId, e);
         } finally {

@@ -155,7 +155,14 @@ final class BotNavigationManager {
             if (runAiTick && entry.navEdge != null
                     && entry.navBlockedPosTicks > 0
                     && entry.navBlockedPosTicks >= entry.navBlockedPosGiveUpTicks) {
+                NavEdgeLearning.failure(graph, entry.navEdge); // bot-persistence ticket 16: remember the miss
                 clearNavigation(entry);
+            }
+            // ...and the make: the bot reached the region the committed edge leads to (counted once per edge).
+            if (entry.navEdge != null && entry.navEdge != entry.navLearnedEdge
+                    && startRegionId == entry.navEdge.toRegionId && startRegionId != entry.navEdge.fromRegionId) {
+                NavEdgeLearning.success(graph, entry.navEdge);
+                entry.navLearnedEdge = entry.navEdge;
             }
 
             BotNavigationGraph.Edge edge = reuseCommittedEdge(graph, entry, startRegionId, targetRegionId);
@@ -1072,7 +1079,8 @@ final class BotNavigationManager {
                     // walked off the exit first, so the entry points differ and it stays free).
                     boolean enteredThroughExit = current.state.viaPortal
                             && current.state.point.equals(edge.startPoint);
-                    int edgeCost = isPortal && enteredThroughExit ? (int) PORTAL_USE_COOLDOWN_MS : edge.cost;
+                    int edgeCost = isPortal && enteredThroughExit ? (int) PORTAL_USE_COOLDOWN_MS
+                            : NavEdgeLearning.scale(graph, edge, edge.cost); // a move that keeps failing costs more
                     // A straight DROP (launchStepX==0) falls in place: it executes from the nearest
                     // in-window x to the bot (selectDropWaypoint) and lands at that same x, NOT from/at
                     // the authored window-midpoint start/end points. Cost the approach to that nearest

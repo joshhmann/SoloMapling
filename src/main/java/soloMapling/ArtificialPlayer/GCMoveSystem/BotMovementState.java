@@ -171,6 +171,8 @@ class BotMovementState {
     String lastEdgeBlockReason = null;
     Point navTargetPos = null;
     BotNavigationGraph navGraph = null;
+    // The last committed edge whose completion NavEdgeLearning already counted (ticket 16).
+    BotNavigationGraph.Edge navLearnedEdge = null;
     BotNavigationGraph.Edge navEdge = null;
     BotNavigationGraph.Edge navJumpLaunchEdge = null;
     int navJumpLaunchX = Integer.MIN_VALUE;

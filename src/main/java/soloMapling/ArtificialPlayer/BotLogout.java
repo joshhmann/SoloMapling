@@ -104,6 +104,7 @@ public final class BotLogout {
         }
         long beat = watched ? 1500 + ThreadLocalRandom.current().nextLong(1500) : 0;
         ExecutorServiceManager.getScheduledExecutorService().schedule(() -> ExecutorServiceManager.runAsync(() -> {
+            long started = System.nanoTime();
             try {
                 if (chr.getParty() != null) {
                     BotPartyCommands.botLeaveParty(chr);
@@ -114,6 +115,7 @@ public final class BotLogout {
                 BotRoster.markSessionEnded(chr.getId());
                 BotTypeManager.manuallyStopBot(chr);
                 BotGeneration.removeBotFromServer(chr);
+                soloMapling.ArtificialPlayer.GCMoveSystem.BotPerformanceMonitor.recordRosterLogout(System.nanoTime() - started);
             } catch (Exception e) {
                 log.warn("Roster bot {} could not log out", chr.getName(), e);
             } finally {

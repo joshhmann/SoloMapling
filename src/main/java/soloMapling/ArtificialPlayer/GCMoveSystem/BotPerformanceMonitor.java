@@ -113,6 +113,9 @@ public final class BotPerformanceMonitor {
     private static final Phase COARSE_DEMOTION = phase("coarse-demotion", Bucket.TRANSITION, false);
     private static final Phase TIER_FLIP = phase("tier-flip", Bucket.TRANSITION, false);
     private static final Phase ENTRY_NUDGE = phase("entry-nudge", Bucket.TRANSITION, false);
+    // bot-persistence ticket 11: the population director's logins and logouts are transitions too.
+    private static final Phase ROSTER_LOGIN = phase("roster-login", Bucket.TRANSITION, false);
+    private static final Phase ROSTER_LOGOUT = phase("roster-logout", Bucket.TRANSITION, false);
 
     private static long prevAtMs = System.currentTimeMillis();
 
@@ -132,6 +135,16 @@ public final class BotPerformanceMonitor {
             throw new IllegalArgumentException("unregistered phase: " + name);
         }
         p.add(nanos, 0);
+    }
+
+    /* A roster bot logging in: load, adopt, place, start (BotPopulationDirector.logIn). */
+    public static void recordRosterLogin(long nanos) {
+        ROSTER_LOGIN.add(nanos, 0);
+    }
+
+    /* A roster bot logging out: party leave, save, session record, removal (BotLogout). */
+    public static void recordRosterLogout(long nanos) {
+        ROSTER_LOGOUT.add(nanos, 0);
     }
 
     /* Nav-graph pathfind, which runs inside a bot's nav-resolve. */
